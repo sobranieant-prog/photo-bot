@@ -67,6 +67,7 @@ async def portfolio(message: Message):
 
 
 
+
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
     keyboard = ReplyKeyboardMarkup(
