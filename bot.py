@@ -17,9 +17,18 @@ ADMIN_ID = 1428673148
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+phone_kb = ReplyKeyboardMarkup(
+    resize_keyboard=True,
+    one_time_keyboard=True,
+    keyboard=[
+        [KeyboardButton(text="📞 Отправить номер", request_contact=True)]
+    ]
+)
+
 class Booking(StatesGroup):
     shoot_type = State()
     datetime = State()
+    phone = State()
 
 @dp.message(Command("start"))
 async def start(message: Message):
@@ -43,7 +52,6 @@ async def start_menu(message: Message):
     )
     await message.answer("Выберите действие:", reply_markup=keyboard)
 
-import os
 
 @dp.message(lambda m: m.text == "📸 Портфолио")
 async def portfolio(message: Message):
@@ -56,6 +64,7 @@ async def portfolio(message: Message):
 
     if not found:
         await message.answer("📂 Портфолио пока пустое")
+
 
 
 @dp.message(lambda m: m.text == "📅 Записаться")
@@ -78,7 +87,7 @@ async def booking_type(message: Message, state: FSMContext):
     await state.set_state(Booking.datetime)
 
 @dp.message(Booking.datetime)
-async def booking_finish(message: Message, state: FSMContext):
+async def booking_datetime(message: Message, state: FSMContext):
     date_text = message.text.strip()
 
     try:
@@ -87,25 +96,52 @@ async def booking_finish(message: Message, state: FSMContext):
     except FileNotFoundError:
         booked = []
 
-    if date_text in booked:
-        await message.answer("❌ Это время уже занято. Выберите другое.")
+ if date_text in booked:
+    await message.answer("❌ Это время уже занято. Выберите другое.")
+    return
+
+    await state.update_data(datetime=date_text)
+
+    await message.answer(
+        "📞 Отлично!\nТеперь отправьте номер телефона 👇",
+        reply_markup=phone_kb
+    )
+    await state.set_state(Booking.phone)
+
+
+@dp.message(Booking.phone)
+async def booking_phone(message: Message, state: FSMContext):
+    if not message.contact:
+        await message.answer("❗ Пожалуйста, нажмите кнопку и отправьте номер")
         return
 
-    with open("bookings.txt", "a", encoding="utf-8") as f:
-        f.write(date_text + "\n")
-
+    phone = message.contact.phone_number
     data = await state.get_data()
 
-    await bot.send_message(
-        ADMIN_ID,
-        f"📸 Новая заявка\n\nТип: {data['shoot_type']}\nВремя: {date_text}"
+    # сохраняем дату в файл
+    with open("bookings.txt", "a", encoding="utf-8") as f:
+        f.write(data["datetime"] + "\n")
+
+    user = message.from_user
+
+    text = (
+        "📸 НОВАЯ ЗАЯВКА\n\n"
+        f"👤 Имя: {user.first_name}\n"
+        f"🔗 Username: @{user.username if user.username else 'нет'}\n"
+        f"🆔 Telegram ID: {user.id}\n"
+        f"📞 Телефон: {phone}\n\n"
+        f"📷 Тип съёмки: {data['shoot_type']}\n"
+        f"📅 Дата и время: {data['datetime']}"
     )
 
-    await message.answer("✅ Заявка принята!")
+    await bot.send_message(ADMIN_ID, text)
+
+    await message.answer(
+        "✅ Заявка принята!\nМы свяжемся с вами в ближайшее время 📞",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="▶️ Начать")]],
+            resize_keyboard=True
+        )
+    )
+
     await state.clear()
-
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
