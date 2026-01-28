@@ -1,21 +1,45 @@
+import asyncio
+import os
+
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup, FSInputFile
+from aiogram.types import (
+    Message,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    FSInputFile,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-import asyncio
 
-import os
+
+# ================== CONFIG ==================
+
 TOKEN = os.getenv("BOT_TOKEN")
-
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN not found in environment variables")
 
-ADMIN_ID = 1428673148 
+ADMIN_ID = 1428673148
 
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+
+# ================== KEYBOARDS ==================
+
+start_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="▶️ Начать")]],
+    resize_keyboard=True
+)
+
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📸 Портфолио")],
+        [KeyboardButton(text="📅 Записаться")]
+    ],
+    resize_keyboard=True
+)
 
 phone_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
@@ -25,37 +49,34 @@ phone_kb = ReplyKeyboardMarkup(
     ]
 )
 
+
+# ================== FSM ==================
+
 class Booking(StatesGroup):
     shoot_type = State()
     datetime = State()
     phone = State()
 
+
+# ================== HANDLERS ==================
+
 @dp.message(Command("start"))
 async def start(message: Message):
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="▶️ Начать")]],
-        resize_keyboard=True
-    )
     await message.answer(
         "Привет! Я бот для записи на фотосессию 📸\n\nНажмите «Начать» 👇",
-        reply_markup=keyboard
+        reply_markup=start_kb
     )
+
 
 @dp.message(lambda m: m.text == "▶️ Начать")
 async def start_menu(message: Message):
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📸 Портфолио")],
-            [KeyboardButton(text="📅 Записаться")]
-        ],
-        resize_keyboard=True
-    )
-    await message.answer("Выберите действие:", reply_markup=keyboard)
+    await message.answer("Выберите действие:", reply_markup=menu_kb)
 
 
 @dp.message(lambda m: m.text == "📸 Портфолио")
 async def portfolio(message: Message):
     found = False
+
     for i in range(1, 11):
         path = f"photo{i}.jpg"
         if os.path.exists(path):
@@ -66,11 +87,9 @@ async def portfolio(message: Message):
         await message.answer("📂 Портфолио пока пустое")
 
 
-
-
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
-    keyboard = ReplyKeyboardMarkup(
+    kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="❤️ Свадебная")],
             [KeyboardButton(text="🎤 Репортаж / корпоратив")],
@@ -78,14 +97,21 @@ async def booking_start(message: Message, state: FSMContext):
         ],
         resize_keyboard=True
     )
-    await message.answer("Выберите тип фотосессии:", reply_markup=keyboard)
+
+    await message.answer("Выберите тип фотосессии:", reply_markup=kb)
     await state.set_state(Booking.shoot_type)
+
 
 @dp.message(Booking.shoot_type)
 async def booking_type(message: Message, state: FSMContext):
     await state.update_data(shoot_type=message.text)
-    await message.answer("📅 Напишите дату и время\nПример: 12.02 с 14:00 до 16:00")
+
+    await message.answer(
+        "📅 Напишите дату и время\n"
+        "Пример: 12.02 с 14:00 до 16:00"
+    )
     await state.set_state(Booking.datetime)
+
 
 @dp.message(Booking.datetime)
 async def booking_datetime(message: Message, state: FSMContext):
@@ -113,13 +139,12 @@ async def booking_datetime(message: Message, state: FSMContext):
 @dp.message(Booking.phone)
 async def booking_phone(message: Message, state: FSMContext):
     if not message.contact:
-        await message.answer("❗ Пожалуйста, нажмите кнопку и отправьте номер")
+        await message.answer("❗ Нажмите кнопку и отправьте номер телефона")
         return
 
     phone = message.contact.phone_number
     data = await state.get_data()
 
-    # сохраняем дату в файл
     with open("bookings.txt", "a", encoding="utf-8") as f:
         f.write(data["datetime"] + "\n")
 
@@ -139,10 +164,17 @@ async def booking_phone(message: Message, state: FSMContext):
 
     await message.answer(
         "✅ Заявка принята!\nМы свяжемся с вами в ближайшее время 📞",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="▶️ Начать")]],
-            resize_keyboard=True
-        )
+        reply_markup=start_kb
     )
 
     await state.clear()
+
+
+# ================== START BOT ==================
+
+async def main():
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
