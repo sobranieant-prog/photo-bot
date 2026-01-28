@@ -8,6 +8,10 @@ import asyncio
 
 import os
 TOKEN = os.getenv("BOT_TOKEN")
+
+if not TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN not found in environment variables")
+
 ADMIN_ID = 1428673148 
 
 bot = Bot(TOKEN)
