@@ -96,9 +96,9 @@ async def booking_datetime(message: Message, state: FSMContext):
     except FileNotFoundError:
         booked = []
 
- if date_text in booked:
-    await message.answer("❌ Это время уже занято. Выберите другое.")
-    return
+    if date_text in booked:
+        await message.answer("❌ Это время уже занято. Выберите другое.")
+        return
 
     await state.update_data(datetime=date_text)
 
