@@ -288,6 +288,7 @@ with open("bookings.txt", "a") as f:
         f"{data['phone']}\n"
     )
 
+  
     await bot.send_message(ADMIN_ID, f"НОВАЯ ЗАЯВКА:\n{data}")
     await message.answer("✅ Готово", reply_markup=start_kb)
     await state.clear()
