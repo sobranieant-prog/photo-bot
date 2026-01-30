@@ -180,6 +180,8 @@ async def portfolio(message: Message):
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
 
+    await state.clear()  
+
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="❤️ Свадебная")],
@@ -203,6 +205,7 @@ async def booking_start(message: Message, state: FSMContext):
 )
 async def booking_type(message: Message, state: FSMContext):
 
+    await state.update_data(shoot_type=message.text)
 
     await message.answer(
         "📅 Выберите дату:",
