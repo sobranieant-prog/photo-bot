@@ -176,26 +176,25 @@ async def portfolio(message: Message):
         await message.answer("Портфолио пусто")
 
 
-# ================= BOOKING =================
 
-@dp.message(
-    Booking.shoot_type,
-    lambda m: m.text in [
-        "❤️ Свадебная",
-        "🎤 Репортаж / Корпоратив",
-        "📸 Индивидуальная / Семейная"
-    ]
-)
-async def booking_type(message: Message, state: FSMContext):
+# ================= BOOKING START =================
 
-    await state.update_data(shoot_type=message.text)
+@dp.message(lambda m: m.text == "📅 Записаться")
+async def booking_start(message: Message, state: FSMContext):
 
-    await message.answer(
-        "📅 Выберите дату:",
-        reply_markup=get_calendar_kb()
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="❤️ Свадебная")],
+            [KeyboardButton(text="🎤 Репортаж / Корпоратив")],
+            [KeyboardButton(text="📸 Индивидуальная / Семейная")]
+        ],
+        resize_keyboard=True
     )
 
-    await state.set_state(Booking.date)
+    await message.answer("Выберите тип фотосессии:", reply_markup=kb)
+    await state.set_state(Booking.shoot_type)
+
+
 
 
 @dp.callback_query(lambda c: c.data.startswith("cal_"))
