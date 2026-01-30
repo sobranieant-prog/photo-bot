@@ -324,6 +324,10 @@ async def admin_clear(message: Message):
 
 
 # ================= RUN =================
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
 
 async def main():
     await dp.start_polling(bot)
