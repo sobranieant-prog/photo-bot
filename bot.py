@@ -88,6 +88,7 @@ def get_calendar_kb(year=None, month=None):
     cal = calendar.monthcalendar(year, month)
     rows = []
 
+    # заголовок
     rows.append([
         InlineKeyboardButton(
             text=f"{MONTHS_RU[month]} {year}",
@@ -95,16 +96,20 @@ def get_calendar_kb(year=None, month=None):
         )
     ])
 
+    # дни недели
     rows.append([
         InlineKeyboardButton(text=d, callback_data="ignore")
         for d in ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
     ])
 
+    # дни месяца
     for week in cal:
         row = []
         for day in week:
             if day == 0:
-                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+                row.append(
+                    InlineKeyboardButton(text=" ", callback_data="ignore")
+                )
             else:
                 row.append(
                     InlineKeyboardButton(
@@ -114,11 +119,23 @@ def get_calendar_kb(year=None, month=None):
                 )
         rows.append(row)
 
+    # переключение месяцев
+    prev_month = month - 1 or 12
+    prev_year = year - 1 if month == 1 else year
+
+    next_month = month + 1 if month < 12 else 1
+    next_year = year + 1 if month == 12 else year
+
+    rows.append([
+        InlineKeyboardButton("⬅️", callback_data=f"cal_{prev_year}_{prev_month}"),
+        InlineKeyboardButton("➡️", callback_data=f"cal_{next_year}_{next_month}")
+    ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def get_time_kb():
-    times = ["10:00","12:00","14:00","16:00","18:00","20:00"]
+    times = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"]
     return InlineKeyboardMarkup(
         inline_keyboard=[[
             InlineKeyboardButton(text=t, callback_data=f"time_{t}")
@@ -171,23 +188,29 @@ async def portfolio(message: Message):
 
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
+
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="❤️ Свадебная")],
-            [KeyboardButton(text="🎤 Репортаж/Корпоратив")],
-            [KeyboardButton(text="📸 Индивидуальная")]
+            [KeyboardButton(text="🎤 Репортаж / Корпоратив")],
+            [KeyboardButton(text="📸 Индивидуальная / Семейная")]
         ],
         resize_keyboard=True
     )
 
-    await message.answer("Выберите тип съёмки:", reply_markup=kb)
+    await message.answer("Выберите тип фотосессии:", reply_markup=kb)
     await state.set_state(Booking.shoot_type)
 
 
 @dp.message(Booking.shoot_type)
 async def booking_type(message: Message, state: FSMContext):
     await state.update_data(shoot_type=message.text)
-    await message.answer("Выберите дату:", reply_markup=get_calendar_kb())
+
+    await message.answer(
+        "📅 Выберите дату:",
+        reply_markup=get_calendar_kb()
+    )
+
     await state.set_state(Booking.date)
 
 
@@ -212,6 +235,19 @@ async def ignore(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(lambda c: c.data.startswith("cal_"))
+async def change_month(callback: CallbackQuery):
+    _, y, m = callback.data.split("_")
+    year = int(y)
+    month = int(m)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=get_calendar_kb(year, month)
+    )
+
+    await callback.answer()
+
+
 @dp.message(Booking.phone)
 async def booking_phone(message: Message, state: FSMContext):
     if not message.contact:
@@ -221,11 +257,16 @@ async def booking_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.contact.phone_number)
     data = await state.get_data()
 
-    await message.answer(
-        f"Проверьте заявку:\n\n"
-        f"{data}",
-        reply_markup=confirm_kb
-    )
+   await message.answer(
+    f"Проверьте заявку:\n\n"
+    f"📷 Тип: {data['shoot_type']}\n"
+    f"📅 Дата: {data['date']}\n"
+    f"⏰ Время: {data['time']}\n"
+    f"📞 Телефон: {phone}\n\n"
+    f"Все верно?",
+    reply_markup=confirm_kb,
+    parse_mode=None
+)
 
     await state.set_state(Booking.confirm)
 
