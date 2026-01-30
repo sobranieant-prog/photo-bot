@@ -254,7 +254,9 @@ async def booking_phone(message: Message, state: FSMContext):
         await message.answer("Нажмите кнопку отправки номера")
         return
 
-    await state.update_data(phone=message.contact.phone_number)
+    phone = message.contact.phone_number
+    await state.update_data(phone=phone)
+
     data = await state.get_data()
 
     await message.answer(
@@ -262,7 +264,7 @@ async def booking_phone(message: Message, state: FSMContext):
         f"📷 Тип: {data['shoot_type']}\n"
         f"📅 Дата: {data['date']}\n"
         f"⏰ Время: {data['time']}\n"
-        f"📞 Телефон: {data['phone']}\n\n"
+        f"📞 Телефон: {phone}\n\n"
         f"Все верно?",
         reply_markup=confirm_kb
     )
@@ -271,25 +273,31 @@ async def booking_phone(message: Message, state: FSMContext):
 
 
 
+
 @dp.message(Booking.confirm)
 async def confirm(message: Message, state: FSMContext):
     if message.text != "✅ Подтвердить":
-        await message.answer("Отменено")
+        await message.answer("Отменено", reply_markup=start_kb)
         await state.clear()
         return
 
     data = await state.get_data()
 
-  
-with open("bookings.txt", "a") as f:
-    f.write(
-        f"{data['date']} {data['time']} | "
-        f"{data['shoot_type']} | "
-        f"{data['phone']}\n"
+    with open("bookings.txt", "a", encoding="utf-8") as f:
+        f.write(
+            f"{data['date']} {data['time']} | "
+            f"{data['shoot_type']} | "
+            f"{data['phone']}\n"
+        )
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"НОВАЯ ЗАЯВКА:\n"
+        f"{data['date']} {data['time']}\n"
+        f"{data['shoot_type']}\n"
+        f"{data['phone']}"
     )
 
-  
-    await bot.send_message(ADMIN_ID, f"НОВАЯ ЗАЯВКА:\n{data}")
     await message.answer("✅ Готово", reply_markup=start_kb)
     await state.clear()
 
