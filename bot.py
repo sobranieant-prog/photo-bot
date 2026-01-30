@@ -257,18 +257,18 @@ async def booking_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.contact.phone_number)
     data = await state.get_data()
 
-   await message.answer(
-    f"Проверьте заявку:\n\n"
-    f"📷 Тип: {data['shoot_type']}\n"
-    f"📅 Дата: {data['date']}\n"
-    f"⏰ Время: {data['time']}\n"
-    f"📞 Телефон: {phone}\n\n"
-    f"Все верно?",
-    reply_markup=confirm_kb,
-    parse_mode=None
-)
+    await message.answer(
+        f"Проверьте заявку:\n\n"
+        f"📷 Тип: {data['shoot_type']}\n"
+        f"📅 Дата: {data['date']}\n"
+        f"⏰ Время: {data['time']}\n"
+        f"📞 Телефон: {data['phone']}\n\n"
+        f"Все верно?",
+        reply_markup=confirm_kb
+    )
 
     await state.set_state(Booking.confirm)
+
 
 
 @dp.message(Booking.confirm)
@@ -280,8 +280,12 @@ async def confirm(message: Message, state: FSMContext):
 
     data = await state.get_data()
 
-    with open("bookings.txt", "a") as f:
-        f.write(f"{data}\n")
+   with open("bookings.txt", "a") as f:
+    f.write(
+        f"{data['date']} {data['time']} | "
+        f"{data['shoot_type']} | "
+        f"{data['phone']}\n"
+    )
 
     await bot.send_message(ADMIN_ID, f"НОВАЯ ЗАЯВКА:\n{data}")
     await message.answer("✅ Готово", reply_markup=start_kb)
@@ -290,22 +294,18 @@ async def confirm(message: Message, state: FSMContext):
 
 # ================= ADMIN =================
 
-@dp.message(Command("admin"))
-async def admin(message: Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Админ панель", reply_markup=admin_kb)
-
-
 @dp.message(lambda m: m.text == "📋 Все записи")
-async def admin_all(message: Message):
+async def admin_all(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
 
+    await state.clear()
+
     try:
         with open("bookings.txt") as f:
-            await message.answer(f.read() or "Пусто")
+            await message.answer(f.read() or "Пусто", reply_markup=admin_kb)
     except:
-        await message.answer("Файл не найден")
+        await message.answer("Файл не найден", reply_markup=admin_kb)
 
 
 # ================= RUN =================
