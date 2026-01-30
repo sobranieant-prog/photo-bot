@@ -193,9 +193,16 @@ async def booking_start(message: Message, state: FSMContext):
     await state.set_state(Booking.shoot_type)
 
 
-@dp.message(Booking.shoot_type)
+@dp.message(
+    Booking.shoot_type,
+    lambda m: m.text in [
+        "❤️ Свадебная",
+        "🎤 Репортаж / Корпоратив",
+        "📸 Индивидуальная / Семейная"
+    ]
+)
 async def booking_type(message: Message, state: FSMContext):
-    await state.update_data(shoot_type=message.text)
+
 
     await message.answer(
         "📅 Выберите дату:",
