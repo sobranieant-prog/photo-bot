@@ -339,6 +339,11 @@ async def admin_clear(message: Message):
     await message.answer("Очищено", reply_markup=admin_kb)
 
 
+@dp.message()
+async def debug_all(message: Message, state: FSMContext):
+    st = await state.get_state()
+    print("DEBUG:", message.text, "| state =", st)
+
 # ================= RUN =================
 
 async def main():
