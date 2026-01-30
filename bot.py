@@ -178,24 +178,16 @@ async def portfolio(message: Message):
 
 # ================= BOOKING =================
 
-@dp.message(lambda m: m.text == "📅 Записаться")
-async def booking_start(message: Message, state: FSMContext):
-
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="❤️ Свадебная")],
-            [KeyboardButton(text="🎤 Репортаж / Корпоратив")],
-            [KeyboardButton(text="📸 Индивидуальная / Семейная")]
-        ],
-        resize_keyboard=True
-    )
-
-    await message.answer("Выберите тип фотосессии:", reply_markup=kb)
-    await state.set_state(Booking.shoot_type)
-
-
-@dp.message(Booking.shoot_type)
+@dp.message(
+    Booking.shoot_type,
+    lambda m: m.text in [
+        "❤️ Свадебная",
+        "🎤 Репортаж / Корпоратив",
+        "📸 Индивидуальная / Семейная"
+    ]
+)
 async def booking_type(message: Message, state: FSMContext):
+
     await state.update_data(shoot_type=message.text)
 
     await message.answer(
