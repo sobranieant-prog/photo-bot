@@ -66,11 +66,6 @@ admin_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-cancel_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="❌ Отмена")]],
-    resize_keyboard=True
-)
-
 
 # ================= CALENDAR =================
 
@@ -88,7 +83,6 @@ def get_calendar_kb(year=None, month=None):
     cal = calendar.monthcalendar(year, month)
     rows = []
 
-    # заголовок
     rows.append([
         InlineKeyboardButton(
             text=f"{MONTHS_RU[month]} {year}",
@@ -96,20 +90,16 @@ def get_calendar_kb(year=None, month=None):
         )
     ])
 
-    # дни недели
     rows.append([
         InlineKeyboardButton(text=d, callback_data="ignore")
         for d in ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
     ])
 
-    # дни месяца
     for week in cal:
         row = []
         for day in week:
             if day == 0:
-                row.append(
-                    InlineKeyboardButton(text=" ", callback_data="ignore")
-                )
+                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
             else:
                 row.append(
                     InlineKeyboardButton(
@@ -119,7 +109,6 @@ def get_calendar_kb(year=None, month=None):
                 )
         rows.append(row)
 
-    # переключение месяцев
     prev_month = month - 1 or 12
     prev_year = year - 1 if month == 1 else year
 
@@ -135,12 +124,14 @@ def get_calendar_kb(year=None, month=None):
 
 
 def get_time_kb():
-    times = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"]
+    times = ["10:00","11:00","12:00","13:00","14:00","15:00",
+             "16:00","17:00","18:00","19:00","20:00"]
+
     return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text=t, callback_data=f"time_{t}")
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t, callback_data=f"time_{t}")]
             for t in times
-        ]]
+        ]
     )
 
 
@@ -214,19 +205,12 @@ async def booking_type(message: Message, state: FSMContext):
     await state.set_state(Booking.date)
 
 
-@dp.callback_query(lambda c: c.data.startswith("date_"))
-async def pick_date(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(date=callback.data.split("_")[1])
-    await callback.message.answer("Выберите время:", reply_markup=get_time_kb())
-    await state.set_state(Booking.time)
-    await callback.answer()
-
-
-@dp.callback_query(lambda c: c.data.startswith("time_"))
-async def pick_time(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(time=callback.data.split("_")[1])
-    await callback.message.answer("Отправьте номер:", reply_markup=phone_kb)
-    await state.set_state(Booking.phone)
+@dp.callback_query(lambda c: c.data.startswith("cal_"))
+async def change_month(callback: CallbackQuery):
+    _, y, m = callback.data.split("_")
+    await callback.message.edit_reply_markup(
+        reply_markup=get_calendar_kb(int(y), int(m))
+    )
     await callback.answer()
 
 
@@ -235,16 +219,29 @@ async def ignore(callback: CallbackQuery):
     await callback.answer()
 
 
-@dp.callback_query(lambda c: c.data.startswith("cal_"))
-async def change_month(callback: CallbackQuery):
-    _, y, m = callback.data.split("_")
-    year = int(y)
-    month = int(m)
+@dp.callback_query(lambda c: c.data.startswith("date_"))
+async def pick_date(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(date=callback.data.split("_")[1])
 
-    await callback.message.edit_reply_markup(
-        reply_markup=get_calendar_kb(year, month)
+    await callback.message.answer(
+        "Выберите время:",
+        reply_markup=get_time_kb()
     )
 
+    await state.set_state(Booking.time)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data.startswith("time_"))
+async def pick_time(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(time=callback.data.split("_")[1])
+
+    await callback.message.answer(
+        "Отправьте номер:",
+        reply_markup=phone_kb
+    )
+
+    await state.set_state(Booking.phone)
     await callback.answer()
 
 
@@ -256,7 +253,6 @@ async def booking_phone(message: Message, state: FSMContext):
 
     phone = message.contact.phone_number
     await state.update_data(phone=phone)
-
     data = await state.get_data()
 
     await message.answer(
@@ -270,8 +266,6 @@ async def booking_phone(message: Message, state: FSMContext):
     )
 
     await state.set_state(Booking.confirm)
-
-
 
 
 @dp.message(Booking.confirm)
@@ -304,18 +298,31 @@ async def confirm(message: Message, state: FSMContext):
 
 # ================= ADMIN =================
 
+@dp.message(Command("admin"))
+async def admin_panel(message: Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Админ панель", reply_markup=admin_kb)
+
+
 @dp.message(lambda m: m.text == "📋 Все записи")
-async def admin_all(message: Message, state: FSMContext):
+async def admin_all(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    await state.clear()
-
     try:
-        with open("bookings.txt") as f:
+        with open("bookings.txt", encoding="utf-8") as f:
             await message.answer(f.read() or "Пусто", reply_markup=admin_kb)
     except:
         await message.answer("Файл не найден", reply_markup=admin_kb)
+
+
+@dp.message(lambda m: m.text == "🗑 Очистить записи")
+async def admin_clear(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    open("bookings.txt", "w").close()
+    await message.answer("Очищено", reply_markup=admin_kb)
 
 
 # ================= RUN =================
