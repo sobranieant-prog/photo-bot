@@ -81,14 +81,27 @@ admin_kb = ReplyKeyboardMarkup(
 
 # ================== CALENDAR ==================
 
+import calendar
+
+MONTHS_RU = [
+    "", "Январь","Февраль","Март","Апрель","Май","Июнь",
+    "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"
+]
+
 def get_calendar_kb(year=None, month=None):
     now = datetime.now()
     year = year or now.year
     month = month or now.month
 
     cal = calendar.monthcalendar(year, month)
-
     rows = []
+
+    rows.append([
+        InlineKeyboardButton(
+            text=f"{MONTHS_RU[month]} {year}",
+            callback_data="ignore"
+        )
+    ])
 
     rows.append([
         InlineKeyboardButton(text=d, callback_data="ignore")
@@ -99,7 +112,7 @@ def get_calendar_kb(year=None, month=None):
         row = []
         for day in week:
             if day == 0:
-                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
             else:
                 row.append(
                     InlineKeyboardButton(
@@ -109,7 +122,32 @@ def get_calendar_kb(year=None, month=None):
                 )
         rows.append(row)
 
+    prev_month = month - 1 or 12
+    prev_year = year - 1 if month == 1 else year
+
+    next_month = month + 1 if month < 12 else 1
+    next_year = year + 1 if month == 12 else year
+
+    rows.append([
+        InlineKeyboardButton("⬅️", callback_data=f"cal_{prev_year}_{prev_month}"),
+        InlineKeyboardButton("➡️", callback_data=f"cal_{next_year}_{next_month}")
+    ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.callback_query(lambda c: c.data.startswith("cal_"))
+async def change_month(callback: CallbackQuery):
+    _, y, m = callback.data.split("_")
+    await callback.message.edit_reply_markup(
+        reply_markup=get_calendar_kb(int(y), int(m))
+    )
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "ignore")
+async def ignore_click(callback: CallbackQuery):
+    await callback.answer()
 
 
 def get_time_kb():
@@ -285,16 +323,14 @@ async def booking_confirm(message: Message, state: FSMContext):
     data = await state.get_data()
     slot = f"{data['date']} {data['time']}"
 
-    with open("bookings.txt", "a") as f:
-        f.write(slot + "\n")
-
-    await bot.send_message(
-        ADMIN_ID,
-        f"📸 Новая заявка\n\n"
+    with open("bookings.txt", "a", encoding="utf-8") as f:
+    f.write(
+        f"{data['date']} {data['time']} | "
+        f"{user.first_name} | "
+        f"{data['phone']} | "
         f"{data['shoot_type']}\n"
-        f"{slot}\n"
-        f"{data['phone']}"
     )
+
 
     await message.answer("✅ Запись принята!", reply_markup=start_kb)
     await state.clear()
@@ -311,43 +347,57 @@ async def cancel_any(message: Message, state: FSMContext):
 # ================== ADMIN ==================
 
 @dp.message(lambda m: m.text == "📋 Все записи")
-async def admin_all(message: Message):
+async def admin_all(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
 
+    await state.clear()   # ← важно!
+
     try:
-        with open("bookings.txt") as f:
-            data = f.read()
-    except:
+        with open("bookings.txt", encoding="utf-8") as f:
+            data = f.read().strip()
+    except FileNotFoundError:
         data = ""
 
-    await message.answer(data or "Записей нет")
+    if not data:
+        await message.answer("Записей нет", reply_markup=admin_kb)
+    else:
+        await message.answer(data, reply_markup=admin_kb)
 
 
 @dp.message(lambda m: m.text == "📅 Сегодня")
-async def admin_today(message: Message):
+async def admin_today(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
+
+    await state.clear()
 
     today = datetime.now().strftime("%Y-%m-%d")
 
     try:
-        with open("bookings.txt") as f:
+        with open("bookings.txt", encoding="utf-8") as f:
             lines = f.read().splitlines()
-    except:
+    except FileNotFoundError:
         lines = []
 
     result = [x for x in lines if today in x]
-    await message.answer("\n".join(result) or "Сегодня пусто")
+
+    if not result:
+        await message.answer("Сегодня пусто", reply_markup=admin_kb)
+    else:
+        await message.answer("\n".join(result), reply_markup=admin_kb)
 
 
 @dp.message(lambda m: m.text == "🗑 Очистить записи")
-async def admin_clear(message: Message):
+async def admin_clear(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
 
-    open("bookings.txt", "w").close()
-    await message.answer("Очищено")
+    await state.clear()
+
+    open("bookings.txt", "w", encoding="utf-8").close()
+
+    await message.answer("Очищено", reply_markup=admin_kb)
 
 
 # ================== RUN ==================
