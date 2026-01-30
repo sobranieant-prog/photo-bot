@@ -280,7 +280,8 @@ async def confirm(message: Message, state: FSMContext):
 
     data = await state.get_data()
 
-   with open("bookings.txt", "a") as f:
+  
+with open("bookings.txt", "a") as f:
     f.write(
         f"{data['date']} {data['time']} | "
         f"{data['shoot_type']} | "
