@@ -240,19 +240,33 @@ async def confirm(message: Message, state: FSMContext):
 
     data = await state.get_data()
 
-    with open("bookings.txt", "a", encoding="utf-8") as f:
-        f.write(
-            f"{data['date']} {data['time']} | "
-            f"{data['shoot_type']} | "
-            f"{data['phone']}\n"
-        )
+    user = message.from_user
+    name = user.full_name
+    username = f"@{user.username}" if user.username else "нет username"
+    user_id = user.id
 
+    record = (
+        f"{data['date']} {data['time']} | "
+        f"{data['shoot_type']} | "
+        f"{data['phone']} | "
+        f"{name} | {username} | id:{user_id}\n"
+    )
+
+    # запись в файл
+    with open("bookings.txt", "a", encoding="utf-8") as f:
+        f.write(record)
+
+    # сообщение админу
     await bot.send_message(
         ADMIN_ID,
-        f"НОВАЯ ЗАЯВКА\n"
-        f"{data['date']} {data['time']}\n"
-        f"{data['shoot_type']}\n"
-        f"{data['phone']}"
+        f"📥 НОВАЯ ЗАЯВКА\n\n"
+        f"👤 Имя: {name}\n"
+        f"🔗 Username: {username}\n"
+        f"🆔 ID: {user_id}\n\n"
+        f"📷 Тип: {data['shoot_type']}\n"
+        f"📅 Дата: {data['date']}\n"
+        f"⏰ Время: {data['time']}\n"
+        f"📞 Телефон: {data['phone']}"
     )
 
     await message.answer("✅ Запись сохранена", reply_markup=start_kb)
