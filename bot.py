@@ -2,19 +2,14 @@ print("BOT STARTED")
 
 import asyncio
 import os
-import calendar
-from datetime import datetime
-
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import (
-    Message, KeyboardButton, ReplyKeyboardMarkup,
-    FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-
+import calendar
+from datetime import datetime
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= CONFIG =================
 
@@ -81,47 +76,59 @@ def get_calendar_kb(year=None, month=None):
     year = year or now.year
     month = month or now.month
 
-    cal = calendar.monthcalendar(year, month)
-    rows = []
+    kb = []
 
-    rows.append([
+    # заголовок
+    kb.append([
         InlineKeyboardButton(
-            text=f"{MONTHS_RU[month]} {year}",
+            text=f"{calendar.month_name[month]} {year}",
             callback_data="ignore"
         )
     ])
 
-    rows.append([
+    # дни недели
+    kb.append([
         InlineKeyboardButton(text=d, callback_data="ignore")
         for d in ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
     ])
+
+    cal = calendar.monthcalendar(year, month)
 
     for week in cal:
         row = []
         for day in week:
             if day == 0:
-                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+                row.append(
+                    InlineKeyboardButton(text=" ", callback_data="ignore")
+                )
             else:
                 row.append(
                     InlineKeyboardButton(
                         text=str(day),
-                        callback_data=f"date_{year}-{month:02d}-{day:02d}"
+                        callback_data=f"date_{year}_{month}_{day}"
                     )
                 )
-        rows.append(row)
+        kb.append(row)
 
+    # переключение месяцев
     prev_month = month - 1 or 12
     prev_year = year - 1 if month == 1 else year
 
-    next_month = month + 1 if month < 12 else 1
+    next_month = month + 1 if month == 12 else month + 1
     next_year = year + 1 if month == 12 else year
 
-    rows.append([
-        InlineKeyboardButton("⬅️", callback_data=f"cal_{prev_year}_{prev_month}"),
-        InlineKeyboardButton("➡️", callback_data=f"cal_{next_year}_{next_month}")
+    kb.append([
+        InlineKeyboardButton(
+            text="⬅️",
+            callback_data=f"cal_{prev_year}_{prev_month}"
+        ),
+        InlineKeyboardButton(
+            text="➡️",
+            callback_data=f"cal_{next_year}_{next_month}"
+        ),
     ])
 
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
 def get_time_kb():
