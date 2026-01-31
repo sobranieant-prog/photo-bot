@@ -1,5 +1,8 @@
 print("BOT STARTED")
 
+import os
+import asyncio
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message,
@@ -13,6 +16,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+
 
 
 # ================= CONFIG =================
