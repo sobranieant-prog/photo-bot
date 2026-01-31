@@ -130,4 +130,141 @@ async def menu(message: Message):
 async def portfolio(message: Message):
     sent = False
 
-    for i in range(1,
+    for i in range(1, 11):
+        path = f"photo{i}.jpg"
+        if os.path.exists(path):
+            await message.answer_photo(FSInputFile(path))
+            sent = True
+
+    if not sent:
+        await message.answer("Портфолио пусто")
+
+
+# ================= BOOKING =================
+
+@dp.message(lambda m: m.text == "📅 Записаться")
+async def booking_start(message: Message, state: FSMContext):
+    await state.clear()
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="❤️ Свадебная")],
+            [KeyboardButton(text="🎤 Репортаж")],
+            [KeyboardButton(text="📸 Индивидуальная")]
+        ],
+        resize_keyboard=True
+    )
+
+    await message.answer("Тип фотосессии:", reply_markup=kb)
+    await state.set_state(Booking.shoot_type)
+
+
+@dp.message(Booking.shoot_type)
+async def booking_type(message: Message, state: FSMContext):
+    await state.update_data(shoot_type=message.text)
+
+    await message.answer(
+        "Выберите дату:",
+        reply_markup=get_date_kb()
+    )
+
+    await state.set_state(Booking.date)
+
+
+# ================= DATE =================
+
+@dp.callback_query(lambda c: c.data.startswith("date_"))
+async def pick_date(callback: CallbackQuery, state: FSMContext):
+    date = callback.data.replace("date_", "")
+    await state.update_data(date=date)
+
+    await callback.message.answer(
+        "Выберите время:",
+        reply_markup=get_time_kb()
+    )
+
+    await state.set_state(Booking.time)
+    await callback.answer()
+
+
+# ================= TIME =================
+
+@dp.callback_query(lambda c: c.data.startswith("time_"))
+async def pick_time(callback: CallbackQuery, state: FSMContext):
+    time = callback.data.replace("time_", "")
+    await state.update_data(time=time)
+
+    await callback.message.answer(
+        "Отправьте номер:",
+        reply_markup=phone_kb
+    )
+
+    await state.set_state(Booking.phone)
+    await callback.answer()
+
+
+# ================= PHONE =================
+
+@dp.message(Booking.phone)
+async def booking_phone(message: Message, state: FSMContext):
+    if not message.contact:
+        await message.answer("Нажмите кнопку отправки номера 👇")
+        return
+
+    phone = message.contact.phone_number
+    await state.update_data(phone=phone)
+
+    data = await state.get_data()
+
+    await message.answer(
+        f"Проверьте заявку:\n\n"
+        f"📷 {data['shoot_type']}\n"
+        f"📅 {data['date']}\n"
+        f"⏰ {data['time']}\n"
+        f"📞 {phone}",
+        reply_markup=confirm_kb
+    )
+
+    await state.set_state(Booking.confirm)
+
+
+# ================= CONFIRM =================
+
+@dp.message(Booking.confirm)
+async def confirm(message: Message, state: FSMContext):
+
+    if message.text != "✅ Подтвердить":
+        await message.answer("Отменено", reply_markup=start_kb)
+        await state.clear()
+        return
+
+    data = await state.get_data()
+
+    with open("bookings.txt", "a", encoding="utf-8") as f:
+        f.write(
+            f"{data['date']} {data['time']} | "
+            f"{data['shoot_type']} | "
+            f"{data['phone']}\n"
+        )
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"НОВАЯ ЗАЯВКА\n"
+        f"{data['date']} {data['time']}\n"
+        f"{data['shoot_type']}\n"
+        f"{data['phone']}"
+    )
+
+    await message.answer("✅ Запись сохранена", reply_markup=start_kb)
+    await state.clear()
+
+
+# ================= RUN =================
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
