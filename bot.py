@@ -313,7 +313,7 @@ async def my_booking(message: Message):
         return
 
     await message.answer(
-        "Ваши записи — выберите для отмены:",
+        "Выберите запись для отмены:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
     )
 
@@ -328,7 +328,6 @@ async def user_cancel(cb: CallbackQuery):
         return
 
     p = lines[idx].strip().split("|")
-
     lines.pop(idx)
     write_lines("bookings.txt", lines)
 
@@ -369,26 +368,31 @@ async def card(cb: CallbackQuery):
     r = parse_bookings()[int(cb.data.split("_")[1])]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Выполнен", callback_data=f"Выполнен_{r['index']}")]
+        [InlineKeyboardButton(
+            text="✅ Выполнен",
+            callback_data=f"done_{r['index']}"
+        )]
     ])
 
     await cb.message.answer(
-        f"{r['name']}\n{r['phone']}\n{r['type']}\n{r['date']} {r['time']}\nСтатус: {r['status']}",
+        f"{r['name']}\n{r['phone']}\n{r['type']}\n"
+        f"{r['date']} {r['time']}\nСтатус: {r['status']}",
         reply_markup=kb
     )
     await cb.answer()
 
 
-@dp.callback_query(lambda c: c.data.startswith("выполнен_"))
-async def выполнен(cb: CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("done_"))
+async def done(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
+
     p = lines[idx].strip().split("|")
-    p[7] = "Выполнен"
-    lines[idx] = "|".join(p)+"\n"
+    p[7] = "ВЫПОЛНЕН"
+    lines[idx] = "|".join(p) + "\n"
     write_lines("bookings.txt", lines)
 
-    await cb.answer("Отмечено")
+    await cb.answer("Отмечено выполненным")
 
 
 # ================= RUN =================
