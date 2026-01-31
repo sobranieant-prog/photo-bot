@@ -62,7 +62,7 @@ confirm_kb = ReplyKeyboardMarkup(
 )
 
 
-# ================= SIMPLE DATE CALENDAR =================
+# ================= DATE KEYBOARD =================
 
 def get_date_kb():
     today = datetime.now()
@@ -78,25 +78,63 @@ def get_date_kb():
             )
         )
 
-    # по 2 кнопки в ряд
     rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
-
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_time_kb():
+# ================= BUSY SLOTS =================
+
+def get_busy_slots(date_str):
+    busy = set()
+
+    if not os.path.exists("bookings.txt"):
+        return busy
+
+    with open("bookings.txt", encoding="utf-8") as f:
+        for line in f:
+            if "|" not in line:
+                continue
+
+            left = line.split("|")[0].strip()
+            parts = left.split()
+
+            if len(parts) >= 2:
+                d, t = parts[0], parts[1]
+                if d == date_str:
+                    busy.add(t)
+
+    return busy
+
+
+# ================= TIME KEYBOARD =================
+
+def get_time_kb(date_str):
     times = [
         "10:00","11:00","12:00","13:00",
         "14:00","15:00","16:00",
         "17:00","18:00","19:00"
     ]
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t, callback_data=f"time_{t}")]
-            for t in times
-        ]
-    )
+    busy = get_busy_slots(date_str)
+    rows = []
+
+    for t in times:
+        if t in busy:
+            rows.append([
+                InlineKeyboardButton(
+                    text=f"❌ {t}",
+                    callback_data="busy"
+                )
+            ])
+        else:
+            rows.append([
+                InlineKeyboardButton(
+                    text=t,
+                    callback_data=f"time_{t}"
+                )
+            ])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ================= FSM =================
@@ -180,11 +218,18 @@ async def pick_date(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.answer(
         "Выберите время:",
-        reply_markup=get_time_kb()
+        reply_markup=get_time_kb(date)
     )
 
     await state.set_state(Booking.time)
     await callback.answer()
+
+
+# ================= BUSY CLICK =================
+
+@dp.callback_query(lambda c: c.data == "busy")
+async def busy_click(callback: CallbackQuery):
+    await callback.answer("Это время уже занято", show_alert=True)
 
 
 # ================= TIME =================
@@ -192,6 +237,14 @@ async def pick_date(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("time_"))
 async def pick_time(callback: CallbackQuery, state: FSMContext):
     time = callback.data.replace("time_", "")
+
+    data = await state.get_data()
+    busy = get_busy_slots(data["date"])
+
+    if time in busy:
+        await callback.answer("Слот уже занят", show_alert=True)
+        return
+
     await state.update_data(time=time)
 
     await callback.message.answer(
@@ -207,13 +260,12 @@ async def pick_time(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(Booking.phone)
 async def booking_phone(message: Message, state: FSMContext):
+
     if not message.contact:
         await message.answer("Нажмите кнопку отправки номера 👇")
         return
 
-    phone = message.contact.phone_number
-    await state.update_data(phone=phone)
-
+    await state.update_data(phone=message.contact.phone_number)
     data = await state.get_data()
 
     await message.answer(
@@ -221,7 +273,7 @@ async def booking_phone(message: Message, state: FSMContext):
         f"📷 {data['shoot_type']}\n"
         f"📅 {data['date']}\n"
         f"⏰ {data['time']}\n"
-        f"📞 {phone}",
+        f"📞 {data['phone']}",
         reply_markup=confirm_kb
     )
 
@@ -252,21 +304,19 @@ async def confirm(message: Message, state: FSMContext):
         f"{name} | {username} | id:{user_id}\n"
     )
 
-    # запись в файл
     with open("bookings.txt", "a", encoding="utf-8") as f:
         f.write(record)
 
-    # сообщение админу
     await bot.send_message(
         ADMIN_ID,
         f"📥 НОВАЯ ЗАЯВКА\n\n"
         f"👤 Имя: {name}\n"
         f"🔗 Username: {username}\n"
         f"🆔 ID: {user_id}\n\n"
-        f"📷 Тип: {data['shoot_type']}\n"
-        f"📅 Дата: {data['date']}\n"
-        f"⏰ Время: {data['time']}\n"
-        f"📞 Телефон: {data['phone']}"
+        f"📷 {data['shoot_type']}\n"
+        f"📅 {data['date']}\n"
+        f"⏰ {data['time']}\n"
+        f"📞 {data['phone']}"
     )
 
     await message.answer("✅ Запись сохранена", reply_markup=start_kb)
