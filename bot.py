@@ -21,9 +21,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # ================= CONFIG =================
 
 TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("BOT_TOKEN not found")
-
 ADMIN_ID = 1428673148
 
 bot = Bot(TOKEN)
@@ -31,17 +28,16 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 # ================= PRICES =================
-# 👉 поставь свои суммы
 
 PRICES = {
-    "❤️ Свадебная": "от 600",
-    "🏢 Корпоративная": "от 250",
-    "🎤 Репортажная": "от 200",
-    "📸 Индивидуальная / Семейная": "от 150"
+    "❤️ Свадебная": "____",
+    "🏢 Корпоративная": "____",
+    "🎤 Репортажная": "____",
+    "📸 Индивидуальная / Семейная": "____"
 }
 
 
-# ================= FILE HELPERS =================
+# ================= FILE =================
 
 def read_lines(path):
     if not os.path.exists(path):
@@ -134,7 +130,6 @@ def get_calendar():
                         text=str(d),
                         callback_data=f"date_{y}_{m}_{d}"
                     ))
-            # end
         kb.append(row)
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -164,10 +159,7 @@ class Booking(StatesGroup):
 
 @dp.message(Command("start"))
 async def start(message: Message):
-    await message.answer(
-        "Привет! Бот записи на съёмку 📸",
-        reply_markup=start_kb
-    )
+    await message.answer("Бот записи на съёмку 📸", reply_markup=start_kb)
 
 
 @dp.message(lambda m: m.text == "▶️ Начать")
@@ -233,6 +225,7 @@ async def pick_date(cb: CallbackQuery, state: FSMContext):
 async def pick_time(cb: CallbackQuery, state: FSMContext):
     t = cb.data.split("_")[1]
     await state.update_data(time=t)
+
     await cb.message.answer("Отправьте номер:", reply_markup=phone_kb)
     await state.set_state(Booking.phone)
     await cb.answer()
@@ -244,23 +237,17 @@ async def get_phone(message: Message, state: FSMContext):
         await message.answer("Нажмите кнопку отправки номера")
         return
 
-    data = await state.get_data()
-    phone = message.contact.phone_number
+    d = await state.get_data()
 
     await state.update_data(
-        phone=phone,
+        phone=message.contact.phone_number,
         name=message.from_user.full_name,
         username=message.from_user.username or "",
         user_id=str(message.from_user.id)
     )
 
     await message.answer(
-        f"""Проверьте заявку:
-
-📸 {data['shoot']}
-📅 {data['date']}
-⏰ {data['time']}
-📞 {phone}""",
+        f"Проверьте заявку:\n\n📸 {d['shoot']}\n📅 {d['date']}\n⏰ {d['time']}",
         reply_markup=confirm_kb
     )
 
@@ -317,10 +304,7 @@ async def my_book(message: Message):
         await message.answer("Нет записей")
         return
 
-    await message.answer(
-        "Ваши записи:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-    )
+    await message.answer("Ваши записи:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 
 @dp.callback_query(lambda c: c.data.startswith("ucancel_"))
@@ -334,11 +318,12 @@ async def user_cancel(cb: CallbackQuery):
     lines.pop(idx)
     write_lines("bookings.txt", lines)
 
-    await cb.message.answer("❌ Запись отменена")
     await bot.send_message(
         ADMIN_ID,
-        f"🚫 Клиент отменил запись {p[0]} {p[1]} {p[4]}"
+        f"🚫 Клиент отменил: {p[0]} {p[1]} {p[4]}"
     )
+
+    await cb.message.answer("❌ Запись отменена")
     await cb.answer()
 
 
@@ -356,12 +341,19 @@ def parse_bookings():
 def crm_kb():
     rows = []
     for i, p in parse_bookings():
+
+        rows.append([
+            InlineKeyboardButton(text="✅ Выполнен", callback_data=f"done_{i}"),
+            InlineKeyboardButton(text="❌ Отменить", callback_data=f"acancel_{i}")
+        ])
+
         rows.append([
             InlineKeyboardButton(
-                text=f"{p[0]} {p[1]} — {p[7]}",
-                callback_data=f"done_{i}"
+                text=f"{p[0]} {p[1]} | {p[4]} | {p[7]}",
+                callback_data="ignore"
             )
         ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -385,7 +377,31 @@ async def done(cb: CallbackQuery):
     await cb.message.edit_reply_markup(reply_markup=crm_kb())
 
 
-# ================= IGNORE =================
+@dp.callback_query(lambda c: c.data.startswith("acancel_"))
+async def admin_cancel(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return
+
+    idx = int(cb.data.split("_")[1])
+    lines = read_lines("bookings.txt")
+    if idx >= len(lines):
+        return
+
+    p = lines[idx].strip().split("|")
+    lines.pop(idx)
+    write_lines("bookings.txt", lines)
+
+    try:
+        await bot.send_message(
+            int(p[6]),
+            f"🚫 Съёмка отменена фотографом\n📅 {p[0]} ⏰ {p[1]}"
+        )
+    except:
+        pass
+
+    await cb.answer("Отменено")
+    await cb.message.edit_reply_markup(reply_markup=crm_kb())
+
 
 @dp.callback_query(lambda c: c.data == "ignore")
 async def ignore(cb: CallbackQuery):
