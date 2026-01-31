@@ -23,6 +23,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 1428673148
 
+# 👉 УСТАНОВИ СВОИ ЦЕНЫ ЗДЕСЬ
+PRICES = {
+    "Свадебная": "от 600",
+    "Корпоративная": "от 250",
+    "Репортажная": "от 200",
+    "Индивидуальная": "от 150"
+}
+
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -46,7 +54,7 @@ def parse_bookings():
     rows = []
     for i, line in enumerate(read_lines("bookings.txt")):
         p = line.strip().split("|")
-        if len(p) < 8:
+        if len(p) < 9:
             continue
 
         rows.append({
@@ -54,11 +62,12 @@ def parse_bookings():
             "date": p[0],
             "time": p[1],
             "type": p[2],
-            "phone": p[3],
-            "name": p[4],
-            "username": p[5],
-            "user_id": p[6],
-            "status": p[7]
+            "price": p[3],
+            "phone": p[4],
+            "name": p[5],
+            "username": p[6],
+            "user_id": p[7],
+            "status": p[8]
         })
     return rows
 
@@ -204,10 +213,13 @@ async def booking_start(message: Message, state: FSMContext):
 
 @dp.message(Booking.shoot)
 async def pick_shoot(message: Message, state: FSMContext):
-    await state.update_data(shoot=message.text)
+    shoot = message.text
+    price = PRICES.get(shoot, "0")
+
+    await state.update_data(shoot=shoot, price=price)
 
     await message.answer(
-        "Выберите дату:",
+        f"💰 Стоимость: {price} ₽\n\nВыберите дату:",
         reply_markup=get_calendar_month()
     )
     await state.set_state(Booking.date)
@@ -264,6 +276,7 @@ async def save_phone(message: Message, state: FSMContext):
         data["date"],
         data["time"],
         data["shoot"],
+        data["price"],
         message.contact.phone_number,
         u.full_name,
         "@"+u.username if u.username else "-",
@@ -274,7 +287,15 @@ async def save_phone(message: Message, state: FSMContext):
     with open("bookings.txt","a",encoding="utf-8") as f:
         f.write(record)
 
-    await message.answer("✅ Запись сохранена", reply_markup=menu_kb)
+    await message.answer(
+        f"""✅ Запись сохранена
+
+📸 {data['shoot']}
+💰 {data['price']} ₽
+📅 {data['date']}
+⏰ {data['time']}""",
+        reply_markup=menu_kb
+    )
 
     await bot.send_message(
         ADMIN_ID,
@@ -285,6 +306,7 @@ async def save_phone(message: Message, state: FSMContext):
 
 📞 {message.contact.phone_number}
 📸 {data['shoot']}
+💰 {data['price']} ₽
 📅 {data['date']}
 ⏰ {data['time']}
 """
@@ -304,7 +326,7 @@ async def my_booking(message: Message):
     for r in rows:
         if r["user_id"] == uid:
             kb.append([InlineKeyboardButton(
-                text=f"📅 {r['date']} ⏰ {r['time']}",
+                text=f"{r['date']} {r['time']} — {r['type']}",
                 callback_data=f"ucancel_{r['index']}"
             )])
 
@@ -335,7 +357,7 @@ async def user_cancel(cb: CallbackQuery):
 
     await bot.send_message(
         ADMIN_ID,
-        f"🚫 Отмена: {p[4]} | {p[0]} {p[1]}"
+        f"🚫 Отмена: {p[5]} | {p[0]} {p[1]}"
     )
 
     await cb.answer()
@@ -375,8 +397,13 @@ async def card(cb: CallbackQuery):
     ])
 
     await cb.message.answer(
-        f"{r['name']}\n{r['phone']}\n{r['type']}\n"
-        f"{r['date']} {r['time']}\nСтатус: {r['status']}",
+        f"""{r['name']}
+{r['phone']}
+
+📸 {r['type']}
+💰 {r['price']} ₽
+📅 {r['date']} {r['time']}
+Статус: {r['status']}""",
         reply_markup=kb
     )
     await cb.answer()
@@ -388,7 +415,7 @@ async def done(cb: CallbackQuery):
     lines = read_lines("bookings.txt")
 
     p = lines[idx].strip().split("|")
-    p[7] = "ВЫПОЛНЕН"
+    p[8] = "ВЫПОЛНЕН"
     lines[idx] = "|".join(p) + "\n"
     write_lines("bookings.txt", lines)
 
