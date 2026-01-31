@@ -13,7 +13,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.state import StateFilter
+from aiogram.filters import StateFilter
 from aiogram import F
 
 
@@ -168,6 +168,9 @@ async def menu(message: Message):
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
 
+   
+    await state.clear()
+
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="❤️ Свадебная")],
@@ -184,6 +187,30 @@ async def booking_start(message: Message, state: FSMContext):
 
     await state.set_state(Booking.shoot_type)
 
+
+# ================= SHOOT TYPE =================
+
+@dp.message(Booking.shoot_type)
+async def booking_type(message: Message, state: FSMContext):
+
+    valid = [
+        "❤️ Свадебная",
+        "🎤 Репортаж / Корпоратив",
+        "📸 Индивидуальная / Семейная"
+    ]
+
+    if message.text not in valid:
+        await message.answer("Нажмите кнопку выбора 👇")
+        return
+
+    await state.update_data(shoot_type=message.text)
+
+    await message.answer(
+        "📅 Выберите дату:",
+        reply_markup=get_calendar_kb()
+    )
+
+    await state.set_state(Booking.date)
 
 
 # ================= PORTFOLIO =================
