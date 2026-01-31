@@ -39,7 +39,8 @@ start_kb = ReplyKeyboardMarkup(
 menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📸 Портфолио")],
-        [KeyboardButton(text="📅 Записаться")]
+        [KeyboardButton(text="📅 Записаться")],
+        [KeyboardButton(text="❌ Отменить мою запись")]
     ],
     resize_keyboard=True
 )
@@ -62,9 +63,9 @@ confirm_kb = ReplyKeyboardMarkup(
 )
 
 
-# ================= DATE KEYBOARD =================
+# ================= DATE =================
 
-def get_date_kb():
+def get_date_kb(prefix="date"):
     today = datetime.now()
     buttons = []
 
@@ -74,7 +75,7 @@ def get_date_kb():
         buttons.append(
             InlineKeyboardButton(
                 text=text,
-                callback_data=f"date_{text}"
+                callback_data=f"{prefix}_{text}"
             )
         )
 
@@ -82,57 +83,60 @@ def get_date_kb():
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ================= BUSY SLOTS =================
+# ================= BUSY =================
+
+def read_bookings():
+    if not os.path.exists("bookings.txt"):
+        return []
+
+    with open("bookings.txt", encoding="utf-8") as f:
+        return f.readlines()
+
+
+def write_bookings(lines):
+    with open("bookings.txt", "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
 
 def get_busy_slots(date_str):
     busy = set()
 
-    if not os.path.exists("bookings.txt"):
-        return busy
+    for line in read_bookings():
+        if "|" not in line:
+            continue
 
-    with open("bookings.txt", encoding="utf-8") as f:
-        for line in f:
-            if "|" not in line:
-                continue
+        left = line.split("|")[0].strip()
+        parts = left.split()
 
-            left = line.split("|")[0].strip()
-            parts = left.split()
-
-            if len(parts) >= 2:
-                d, t = parts[0], parts[1]
-                if d == date_str:
-                    busy.add(t)
+        if len(parts) >= 2:
+            d, t = parts[0], parts[1]
+            if d == date_str:
+                busy.add(t)
 
     return busy
 
 
-# ================= TIME KEYBOARD =================
+# ================= TIME =================
 
 def get_time_kb(date_str):
-    times = [
-        "10:00","11:00","12:00","13:00",
-        "14:00","15:00","16:00",
-        "17:00","18:00","19:00"
-    ]
+    times = ["10:00","11:00","12:00","13:00",
+             "14:00","15:00","16:00",
+             "17:00","18:00","19:00"]
 
     busy = get_busy_slots(date_str)
     rows = []
 
     for t in times:
         if t in busy:
-            rows.append([
-                InlineKeyboardButton(
-                    text=f"❌ {t}",
-                    callback_data="busy"
-                )
-            ])
+            rows.append([InlineKeyboardButton(
+                text=f"❌ {t}",
+                callback_data="busy"
+            )])
         else:
-            rows.append([
-                InlineKeyboardButton(
-                    text=t,
-                    callback_data=f"time_{t}"
-                )
-            ])
+            rows.append([InlineKeyboardButton(
+                text=t,
+                callback_data=f"time_{t}"
+            )])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -152,14 +156,14 @@ class Booking(StatesGroup):
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
-        "Привет! Я бот записи на фотосессию 📸",
+        "Бот записи на фотосессию 📸",
         reply_markup=start_kb
     )
 
 
 @dp.message(lambda m: m.text == "▶️ Начать")
 async def menu(message: Message):
-    await message.answer("Выберите действие:", reply_markup=menu_kb)
+    await message.answer("Меню:", reply_markup=menu_kb)
 
 
 # ================= PORTFOLIO =================
@@ -167,7 +171,6 @@ async def menu(message: Message):
 @dp.message(lambda m: m.text == "📸 Портфолио")
 async def portfolio(message: Message):
     sent = False
-
     for i in range(1, 11):
         path = f"photo{i}.jpg"
         if os.path.exists(path):
@@ -193,7 +196,7 @@ async def booking_start(message: Message, state: FSMContext):
         resize_keyboard=True
     )
 
-    await message.answer("Тип фотосессии:", reply_markup=kb)
+    await message.answer("Тип съемки:", reply_markup=kb)
     await state.set_state(Booking.shoot_type)
 
 
@@ -201,15 +204,9 @@ async def booking_start(message: Message, state: FSMContext):
 async def booking_type(message: Message, state: FSMContext):
     await state.update_data(shoot_type=message.text)
 
-    await message.answer(
-        "Выберите дату:",
-        reply_markup=get_date_kb()
-    )
-
+    await message.answer("Выберите дату:", reply_markup=get_date_kb())
     await state.set_state(Booking.date)
 
-
-# ================= DATE =================
 
 @dp.callback_query(lambda c: c.data.startswith("date_"))
 async def pick_date(callback: CallbackQuery, state: FSMContext):
@@ -225,24 +222,18 @@ async def pick_date(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ================= BUSY CLICK =================
-
 @dp.callback_query(lambda c: c.data == "busy")
-async def busy_click(callback: CallbackQuery):
-    await callback.answer("Это время уже занято", show_alert=True)
+async def busy(callback: CallbackQuery):
+    await callback.answer("Слот занят", show_alert=True)
 
-
-# ================= TIME =================
 
 @dp.callback_query(lambda c: c.data.startswith("time_"))
 async def pick_time(callback: CallbackQuery, state: FSMContext):
     time = callback.data.replace("time_", "")
 
     data = await state.get_data()
-    busy = get_busy_slots(data["date"])
-
-    if time in busy:
-        await callback.answer("Слот уже занят", show_alert=True)
+    if time in get_busy_slots(data["date"]):
+        await callback.answer("Уже занято", show_alert=True)
         return
 
     await state.update_data(time=time)
@@ -260,20 +251,15 @@ async def pick_time(callback: CallbackQuery, state: FSMContext):
 
 @dp.message(Booking.phone)
 async def booking_phone(message: Message, state: FSMContext):
-
     if not message.contact:
-        await message.answer("Нажмите кнопку отправки номера 👇")
+        await message.answer("Нажмите кнопку отправки номера")
         return
 
     await state.update_data(phone=message.contact.phone_number)
     data = await state.get_data()
 
     await message.answer(
-        f"Проверьте заявку:\n\n"
-        f"📷 {data['shoot_type']}\n"
-        f"📅 {data['date']}\n"
-        f"⏰ {data['time']}\n"
-        f"📞 {data['phone']}",
+        f"Проверьте:\n{data['shoot_type']}\n{data['date']} {data['time']}\n{data['phone']}",
         reply_markup=confirm_kb
     )
 
@@ -291,36 +277,74 @@ async def confirm(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
-
-    user = message.from_user
-    name = user.full_name
-    username = f"@{user.username}" if user.username else "нет username"
-    user_id = user.id
+    u = message.from_user
 
     record = (
         f"{data['date']} {data['time']} | "
-        f"{data['shoot_type']} | "
-        f"{data['phone']} | "
-        f"{name} | {username} | id:{user_id}\n"
+        f"{data['shoot_type']} | {data['phone']} | "
+        f"{u.full_name} | @{u.username} | id:{u.id}\n"
     )
 
     with open("bookings.txt", "a", encoding="utf-8") as f:
         f.write(record)
 
-    await bot.send_message(
-        ADMIN_ID,
-        f"📥 НОВАЯ ЗАЯВКА\n\n"
-        f"👤 Имя: {name}\n"
-        f"🔗 Username: {username}\n"
-        f"🆔 ID: {user_id}\n\n"
-        f"📷 {data['shoot_type']}\n"
-        f"📅 {data['date']}\n"
-        f"⏰ {data['time']}\n"
-        f"📞 {data['phone']}"
+    await bot.send_message(ADMIN_ID, "📥 Новая заявка\n" + record)
+
+    await message.answer(
+        "✅ Записано\nМожно отменить через меню",
+        reply_markup=menu_kb
     )
 
-    await message.answer("✅ Запись сохранена", reply_markup=start_kb)
     await state.clear()
+
+
+# ================= USER CANCEL =================
+
+@dp.message(lambda m: m.text == "❌ Отменить мою запись")
+async def cancel_my_booking(message: Message):
+    uid = f"id:{message.from_user.id}"
+
+    lines = read_bookings()
+    new_lines = [l for l in lines if uid not in l]
+
+    if len(lines) == len(new_lines):
+        await message.answer("Запись не найдена")
+        return
+
+    write_bookings(new_lines)
+
+    await message.answer("✅ Ваша запись отменена")
+
+
+# ================= ADMIN CALENDAR =================
+
+@dp.message(Command("admin_calendar"))
+async def admin_calendar(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    await message.answer(
+        "Выберите дату:",
+        reply_markup=get_date_kb(prefix="admin_date")
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("admin_date_"))
+async def admin_date(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+
+    date = callback.data.replace("admin_date_", "")
+
+    rows = []
+    for line in read_bookings():
+        if line.startswith(date):
+            rows.append(line)
+
+    text = "".join(rows) if rows else "Нет записей"
+
+    await callback.message.answer(f"📅 {date}\n\n{text}")
+    await callback.answer()
 
 
 # ================= RUN =================
