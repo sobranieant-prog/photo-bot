@@ -96,14 +96,6 @@ phone_kb = ReplyKeyboardMarkup(
     one_time_keyboard=True
 )
 
-confirm_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="✅ Подтвердить"),
-         KeyboardButton(text="❌ Отменить")]
-    ],
-    resize_keyboard=True
-)
-
 
 # ================= FSM =================
 
@@ -114,7 +106,7 @@ class Booking(StatesGroup):
     phone = State()
 
 
-# ================= CALENDAR (CURRENT MONTH) =================
+# ================= CALENDAR =================
 
 def get_calendar_month():
     now = datetime.now()
@@ -157,9 +149,11 @@ def get_time_kb(date):
 
     rows = []
     for t in times:
-        text = f"❌ {t}" if is_slot_busy(date, t) else t
-        cb = "busy" if is_slot_busy(date, t) else f"time_{t}"
-        rows.append([InlineKeyboardButton(text=text, callback_data=cb)])
+        busy = is_slot_busy(date, t)
+        rows.append([InlineKeyboardButton(
+            text=("❌ "+t) if busy else t,
+            callback_data="busy" if busy else f"time_{t}"
+        )])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -168,10 +162,8 @@ def get_time_kb(date):
 
 @dp.message(Command("start"))
 async def start(message: Message):
-    await message.answer(
-        "Привет! Бот записи на съёмку 📸",
-        reply_markup=start_kb
-    )
+    await message.answer("Бот записи 📸", reply_markup=start_kb)
+
 
 @dp.message(lambda m: m.text == "▶️ Начать")
 async def menu(message: Message):
@@ -219,6 +211,11 @@ async def pick_shoot(message: Message, state: FSMContext):
         reply_markup=get_calendar_month()
     )
     await state.set_state(Booking.date)
+
+
+@dp.callback_query(lambda c: c.data == "ignore")
+async def ignore(cb: CallbackQuery):
+    await cb.answer()
 
 
 @dp.callback_query(lambda c: c.data.startswith("date_"))
@@ -284,7 +281,7 @@ async def save_phone(message: Message, state: FSMContext):
         f"""📥 НОВАЯ ЗАЯВКА
 
 👤 {u.full_name}
-@{u.username}
+{('@'+u.username) if u.username else ''}
 
 📞 {message.contact.phone_number}
 📸 {data['shoot']}
@@ -307,7 +304,7 @@ async def my_booking(message: Message):
     for r in rows:
         if r["user_id"] == uid:
             kb.append([InlineKeyboardButton(
-                text=f"{r['date']} {r['time']}",
+                text=f"📅 {r['date']} ⏰ {r['time']}",
                 callback_data=f"ucancel_{r['index']}"
             )])
 
@@ -316,7 +313,7 @@ async def my_booking(message: Message):
         return
 
     await message.answer(
-        "Ваша запись:",
+        "Ваши записи — выберите для отмены:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
     )
 
@@ -325,6 +322,11 @@ async def my_booking(message: Message):
 async def user_cancel(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
+
+    if idx >= len(lines):
+        await cb.answer("Уже удалено")
+        return
+
     p = lines[idx].strip().split("|")
 
     lines.pop(idx)
@@ -334,7 +336,7 @@ async def user_cancel(cb: CallbackQuery):
 
     await bot.send_message(
         ADMIN_ID,
-        f"🚫 Отмена: {p[4]} {p[0]} {p[1]}"
+        f"🚫 Отмена: {p[4]} | {p[0]} {p[1]}"
     )
 
     await cb.answer()
@@ -366,22 +368,14 @@ async def crm(message: Message):
 async def card(cb: CallbackQuery):
     r = parse_bookings()[int(cb.data.split("_")[1])]
 
-    text = (
-        f"{r['name']}\n{r['username']}\n"
-        f"{r['phone']}\n\n"
-        f"{r['type']}\n"
-        f"{r['date']} {r['time']}\n"
-        f"Статус: {r['status']}"
-    )
-
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="✅ DONE",
-            callback_data=f"done_{r['index']}"
-        )]
+        [InlineKeyboardButton(text="✅ DONE", callback_data=f"done_{r['index']}")]
     ])
 
-    await cb.message.answer(text, reply_markup=kb)
+    await cb.message.answer(
+        f"{r['name']}\n{r['phone']}\n{r['type']}\n{r['date']} {r['time']}\nСтатус: {r['status']}",
+        reply_markup=kb
+    )
     await cb.answer()
 
 
@@ -394,7 +388,7 @@ async def done(cb: CallbackQuery):
     lines[idx] = "|".join(p)+"\n"
     write_lines("bookings.txt", lines)
 
-    await cb.answer("Готово")
+    await cb.answer("Отмечено")
 
 
 # ================= RUN =================
