@@ -369,7 +369,7 @@ async def card(cb: CallbackQuery):
     r = parse_bookings()[int(cb.data.split("_")[1])]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ DONE", callback_data=f"done_{r['index']}")]
+        [InlineKeyboardButton(text="✅ Выполнен", callback_data=f"Выполнен_{r['index']}")]
     ])
 
     await cb.message.answer(
@@ -379,12 +379,12 @@ async def card(cb: CallbackQuery):
     await cb.answer()
 
 
-@dp.callback_query(lambda c: c.data.startswith("done_"))
-async def done(cb: CallbackQuery):
+@dp.callback_query(lambda c: c.data.startswith("выполнен_"))
+async def выполнен(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
     p = lines[idx].strip().split("|")
-    p[7] = "DONE"
+    p[7] = "Выполнен"
     lines[idx] = "|".join(p)+"\n"
     write_lines("bookings.txt", lines)
 
