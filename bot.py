@@ -1,4 +1,5 @@
 print("BOT STARTED")
+
 import asyncio
 import os
 import calendar
@@ -13,8 +14,6 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import StateFilter
-from aiogram import F
 
 
 # ================= CONFIG =================
@@ -63,7 +62,6 @@ confirm_kb = ReplyKeyboardMarkup(
 admin_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📋 Все записи")],
-        [KeyboardButton(text="📅 Сегодня")],
         [KeyboardButton(text="🗑 Очистить записи")]
     ],
     resize_keyboard=True
@@ -127,8 +125,10 @@ def get_calendar_kb(year=None, month=None):
 
 
 def get_time_kb():
-    times = ["10:00","11:00","12:00","13:00","14:00","15:00",
-             "16:00","17:00","18:00","19:00","20:00"]
+    times = [
+        "10:00","11:00","12:00","13:00","14:00",
+        "15:00","16:00","17:00","18:00","19:00"
+    ]
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -163,12 +163,25 @@ async def menu(message: Message):
     await message.answer("Выберите действие:", reply_markup=menu_kb)
 
 
-# ================= BOOKING START =================
+# ================= PORTFOLIO =================
+
+@dp.message(lambda m: m.text == "📸 Портфолио")
+async def portfolio(message: Message):
+    found = False
+    for i in range(1, 11):
+        path = f"photo{i}.jpg"
+        if os.path.exists(path):
+            await message.answer_photo(FSInputFile(path))
+            found = True
+
+    if not found:
+        await message.answer("Портфолио пусто")
+
+
+# ================= BOOKING FLOW =================
 
 @dp.message(lambda m: m.text == "📅 Записаться")
 async def booking_start(message: Message, state: FSMContext):
-
-   
     await state.clear()
 
     kb = ReplyKeyboardMarkup(
@@ -180,15 +193,9 @@ async def booking_start(message: Message, state: FSMContext):
         resize_keyboard=True
     )
 
-    await message.answer(
-        "Выберите тип фотосессии:",
-        reply_markup=kb
-    )
-
+    await message.answer("Выберите тип фотосессии:", reply_markup=kb)
     await state.set_state(Booking.shoot_type)
 
-
-# ================= SHOOT TYPE =================
 
 @dp.message(Booking.shoot_type)
 async def booking_type(message: Message, state: FSMContext):
@@ -213,22 +220,7 @@ async def booking_type(message: Message, state: FSMContext):
     await state.set_state(Booking.date)
 
 
-# ================= PORTFOLIO =================
-
-@dp.message(lambda m: m.text == "📸 Портфолио")
-async def portfolio(message: Message):
-    found = False
-    for i in range(1, 11):
-        path = f"photo{i}.jpg"
-        if os.path.exists(path):
-            await message.answer_photo(FSInputFile(path))
-            found = True
-
-    if not found:
-        await message.answer("Портфолио пусто")
-
-
-
+# ================= CALENDAR =================
 
 @dp.callback_query(lambda c: c.data.startswith("cal_"))
 async def change_month(callback: CallbackQuery):
@@ -246,7 +238,8 @@ async def ignore(callback: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data.startswith("date_"))
 async def pick_date(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(date=callback.data.split("_")[1])
+    date = callback.data.split("_")[1]
+    await state.update_data(date=date)
 
     await callback.message.answer(
         "Выберите время:",
@@ -259,7 +252,8 @@ async def pick_date(callback: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("time_"))
 async def pick_time(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(time=callback.data.split("_")[1])
+    time = callback.data.split("_")[1]
+    await state.update_data(time=time)
 
     await callback.message.answer(
         "Отправьте номер:",
@@ -270,14 +264,18 @@ async def pick_time(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# ================= PHONE =================
+
 @dp.message(Booking.phone)
 async def booking_phone(message: Message, state: FSMContext):
+
     if not message.contact:
         await message.answer("Нажмите кнопку отправки номера")
         return
 
     phone = message.contact.phone_number
     await state.update_data(phone=phone)
+
     data = await state.get_data()
 
     await message.answer(
@@ -285,16 +283,18 @@ async def booking_phone(message: Message, state: FSMContext):
         f"📷 Тип: {data['shoot_type']}\n"
         f"📅 Дата: {data['date']}\n"
         f"⏰ Время: {data['time']}\n"
-        f"📞 Телефон: {phone}\n\n"
-        f"Все верно?",
+        f"📞 Телефон: {phone}",
         reply_markup=confirm_kb
     )
 
     await state.set_state(Booking.confirm)
 
 
+# ================= CONFIRM =================
+
 @dp.message(Booking.confirm)
 async def confirm(message: Message, state: FSMContext):
+
     if message.text != "✅ Подтвердить":
         await message.answer("Отменено", reply_markup=start_kb)
         await state.clear()
@@ -317,7 +317,7 @@ async def confirm(message: Message, state: FSMContext):
         f"{data['phone']}"
     )
 
-    await message.answer("✅ Готово", reply_markup=start_kb)
+    await message.answer("✅ Запись сохранена", reply_markup=start_kb)
     await state.clear()
 
 
@@ -336,9 +336,9 @@ async def admin_all(message: Message):
 
     try:
         with open("bookings.txt", encoding="utf-8") as f:
-            await message.answer(f.read() or "Пусто", reply_markup=admin_kb)
+            await message.answer(f.read() or "Пусто")
     except:
-        await message.answer("Файл не найден", reply_markup=admin_kb)
+        await message.answer("Файл не найден")
 
 
 @dp.message(lambda m: m.text == "🗑 Очистить записи")
@@ -347,12 +347,13 @@ async def admin_clear(message: Message):
         return
 
     open("bookings.txt", "w").close()
-    await message.answer("Очищено", reply_markup=admin_kb)
+    await message.answer("Очищено")
 
 
 # ================= RUN =================
 
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 
