@@ -14,6 +14,7 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from datetime import datetime, timedelta
 
 
 # ================= CONFIG =================
@@ -26,6 +27,7 @@ ADMIN_ID = 1428673148
 
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+MAX_BOOK_MONTHS = 6
 
 
 # ================= FILE HELPERS =================
@@ -110,6 +112,10 @@ def get_calendar(year=None, month=None):
     year = year or now.year
     month = month or now.month
 
+    limit_date = datetime(now.year, now.month, 1)
+    limit_month = (limit_date.month - 1 + MAX_BOOK_MONTHS) % 12 + 1
+    limit_year = limit_date.year + (limit_date.month - 1 + MAX_BOOK_MONTHS) // 12
+
     kb = []
 
     kb.append([InlineKeyboardButton(
@@ -128,24 +134,41 @@ def get_calendar(year=None, month=None):
             if day == 0:
                 row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
             else:
-                row.append(InlineKeyboardButton(
-                    text=str(day),
-                    callback_data=f"date_{year}_{month}_{day}"
-                ))
+                d = datetime(year, month, day)
+
+                if d.date() < now.date():
+                    row.append(InlineKeyboardButton(text="—", callback_data="ignore"))
+                else:
+                    row.append(InlineKeyboardButton(
+                        text=str(day),
+                        callback_data=f"date_{year}_{month}_{day}"
+                    ))
         kb.append(row)
 
+    # prev
     prev_m = 12 if month == 1 else month-1
     prev_y = year-1 if month == 1 else year
 
+    # next
     next_m = 1 if month == 12 else month+1
     next_y = year+1 if month == 12 else year
 
-    kb.append([
-        InlineKeyboardButton(text="⬅️", callback_data=f"cal_{prev_y}_{prev_m}"),
-        InlineKeyboardButton(text="➡️", callback_data=f"cal_{next_y}_{next_m}")
-    ])
+    nav = []
+
+    nav.append(
+        InlineKeyboardButton("⬅️", callback_data=f"cal_{prev_y}_{prev_m}")
+    )
+
+    # проверка лимита 6 месяцев
+    if (next_y < limit_year) or (next_y == limit_year and next_m <= limit_month):
+        nav.append(
+            InlineKeyboardButton("➡️", callback_data=f"cal_{next_y}_{next_m}")
+        )
+
+    kb.append(nav)
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
 
 
 def get_time_kb(date):
@@ -228,6 +251,14 @@ async def ign(cb: CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("date_"))
 async def pick_date(cb: CallbackQuery, state: FSMContext):
     _, y, m, d = cb.data.split("_")
+
+    picked = datetime(int(y), int(m), int(d))
+    limit = datetime.now() + timedelta(days=30 * MAX_BOOK_MONTHS)
+
+    if picked > limit:
+        await cb.answer("Можно записаться только на 6 месяцев вперёд", show_alert=True)
+        return
+
     date = f"{d.zfill(2)}.{m.zfill(2)}.{y}"
     await state.update_data(date=date)
 
@@ -235,8 +266,10 @@ async def pick_date(cb: CallbackQuery, state: FSMContext):
         "Выберите время:",
         reply_markup=get_time_kb(date)
     )
+
     await state.set_state(Booking.time)
     await cb.answer()
+
 
 
 @dp.callback_query(lambda c: c.data.startswith("time_"))
