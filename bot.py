@@ -1,8 +1,7 @@
-print("BOT STARTED")
-
 import os
 import asyncio
-from datetime import datetime, timedelta
+import calendar
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import (
@@ -12,52 +11,21 @@ from aiogram.types import (
     FSInputFile
 )
 from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.storage.memory import MemoryStorage
 
 
 # ================= CONFIG =================
 
 TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("BOT_TOKEN not set")
+
 ADMIN_ID = 1428673148
 
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
-
-# ================= KEYBOARDS =================
-
-start_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="▶️ Начать")]],
-    resize_keyboard=True
-)
-
-menu_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="📸 Портфолио")],
-        [KeyboardButton(text="📅 Записаться")],
-        [KeyboardButton(text="❌ Отменить мою запись")]
-    ],
-    resize_keyboard=True
-)
-
-phone_kb = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(
-        text="📞 Отправить номер",
-        request_contact=True
-    )]],
-    resize_keyboard=True,
-    one_time_keyboard=True
-)
-
-confirm_kb = ReplyKeyboardMarkup(
-    keyboard=[[
-        KeyboardButton(text="✅ Подтвердить"),
-        KeyboardButton(text="❌ Отменить")
-    ]],
-    resize_keyboard=True
-)
 
 
 # ================= FILE HELPERS =================
@@ -74,36 +42,14 @@ def write_lines(path, lines):
         f.writelines(lines)
 
 
-# ================= DATE =================
-
-def get_date_kb(prefix="date"):
-    today = datetime.now()
-    btns = []
-
-    for i in range(14):
-        d = today + timedelta(days=i)
-        s = d.strftime("%d.%m.%Y")
-        btns.append(
-            InlineKeyboardButton(
-                text=s,
-                callback_data=f"{prefix}_{s}"
-            )
-        )
-
-    rows = [btns[i:i+2] for i in range(0, len(btns), 2)]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-# ================= BOOKINGS =================
+# ================= BOOKINGS PARSER =================
 
 def parse_bookings():
     rows = []
-
     for i, line in enumerate(read_lines("bookings.txt")):
         p = line.strip().split("|")
         if len(p) < 8:
             continue
-
         rows.append({
             "index": i,
             "date": p[0],
@@ -115,105 +61,105 @@ def parse_bookings():
             "user_id": p[6],
             "status": p[7]
         })
-
     return rows
 
 
-def get_busy_slots(date):
-    busy = set()
+def slot_busy(date, time):
     for r in parse_bookings():
-        if r["date"] == date:
-            busy.add(r["time"])
-    return busy
+        if r["date"] == date and r["time"] == time:
+            return True
+    return False
 
 
-# ================= TIME =================
+# ================= KEYBOARDS =================
 
-def get_time_kb(date):
-    times = ["10:00","11:00","12:00","13:00",
-             "14:00","15:00","16:00",
-             "17:00","18:00","19:00"]
+start_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="▶️ Начать")]],
+    resize_keyboard=True
+)
 
-    busy = get_busy_slots(date)
-    rows = []
+menu_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📸 Портфолио")],
+        [KeyboardButton(text="📅 Записаться")],
+        [KeyboardButton(text="❌ Моя запись")]
+    ],
+    resize_keyboard=True
+)
 
-    for t in times:
-        if t in busy:
-            rows.append([InlineKeyboardButton(
-                text=f"❌ {t}",
-                callback_data="busy"
-            )])
-        else:
-            rows.append([InlineKeyboardButton(
-                text=t,
-                callback_data=f"time_{t}"
-            )])
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-# ================= CHECKLIST =================
-
-CHECK_ITEMS = [
-    "Созвон с клиентом",
-    "Подтверждение локации",
-    "Оборудование",
-    "Свет",
-    "Референсы",
-    "Оплата",
-    "Передача фото"
-]
-
-
-def get_check_state(idx):
-    for line in read_lines("checklists.txt"):
-        i, data = line.strip().split("|")
-        if int(i) == idx:
-            return data.split(",")
-    return ["0"] * len(CHECK_ITEMS)
-
-
-def save_check_state(idx, state):
-    lines = read_lines("checklists.txt")
-    new = []
-
-    found = False
-    for line in lines:
-        i, _ = line.strip().split("|")
-        if int(i) == idx:
-            new.append(f"{idx}|{','.join(state)}\n")
-            found = True
-        else:
-            new.append(line)
-
-    if not found:
-        new.append(f"{idx}|{','.join(state)}\n")
-
-    write_lines("checklists.txt", new)
-
-
-def checklist_kb(idx):
-    state = get_check_state(idx)
-    rows = []
-
-    for n, item in enumerate(CHECK_ITEMS):
-        mark = "✅" if state[n] == "1" else "⬜"
-        rows.append([InlineKeyboardButton(
-            text=f"{mark} {item}",
-            callback_data=f"check_{idx}_{n}"
-        )])
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+phone_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📞 Отправить номер", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
 
 
 # ================= FSM =================
 
 class Booking(StatesGroup):
-    shoot_type = State()
+    shoot = State()
     date = State()
     time = State()
     phone = State()
-    confirm = State()
+
+
+# ================= CALENDAR =================
+
+def get_calendar(year=None, month=None):
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+
+    kb = []
+
+    kb.append([InlineKeyboardButton(
+        text=f"{calendar.month_name[month]} {year}",
+        callback_data="ignore"
+    )])
+
+    kb.append([
+        InlineKeyboardButton(text=d, callback_data="ignore")
+        for d in ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
+    ])
+
+    for week in calendar.monthcalendar(year, month):
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
+            else:
+                row.append(InlineKeyboardButton(
+                    text=str(day),
+                    callback_data=f"date_{year}_{month}_{day}"
+                ))
+        kb.append(row)
+
+    prev_m = 12 if month == 1 else month-1
+    prev_y = year-1 if month == 1 else year
+
+    next_m = 1 if month == 12 else month+1
+    next_y = year+1 if month == 12 else year
+
+    kb.append([
+        InlineKeyboardButton(text="⬅️", callback_data=f"cal_{prev_y}_{prev_m}"),
+        InlineKeyboardButton(text="➡️", callback_data=f"cal_{next_y}_{next_m}")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def get_time_kb(date):
+    times = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00"]
+
+    rows = []
+    for t in times:
+        text = f"{t} ❌" if slot_busy(date, t) else t
+        rows.append([InlineKeyboardButton(
+            text=text,
+            callback_data=f"time_{t}"
+        )])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ================= START =================
@@ -232,109 +178,146 @@ async def menu(message: Message):
 
 @dp.message(lambda m: m.text == "📸 Портфолио")
 async def portfolio(message: Message):
-    for i in range(1, 11):
+    sent = False
+    for i in range(1, 6):
         p = f"photo{i}.jpg"
         if os.path.exists(p):
             await message.answer_photo(FSInputFile(p))
+            sent = True
+    if not sent:
+        await message.answer("Фото пока нет")
 
 
-# ================= BOOKING FLOW =================
+# ================= BOOK FLOW =================
 
 @dp.message(lambda m: m.text == "📅 Записаться")
-async def b_start(message: Message, state: FSMContext):
+async def book_start(message: Message, state: FSMContext):
     kb = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Свадебная")],
-            [KeyboardButton(text="Репортаж")],
+            [KeyboardButton(text="Корпоратив")],
             [KeyboardButton(text="Индивидуальная")]
         ],
         resize_keyboard=True
     )
-    await message.answer("Тип съемки:", reply_markup=kb)
-    await state.set_state(Booking.shoot_type)
+    await message.answer("Тип съёмки:", reply_markup=kb)
+    await state.set_state(Booking.shoot)
 
 
-@dp.message(Booking.shoot_type)
-async def b_type(message: Message, state: FSMContext):
-    await state.update_data(shoot_type=message.text)
-    await message.answer("Дата:", reply_markup=get_date_kb())
+@dp.message(Booking.shoot)
+async def book_type(message: Message, state: FSMContext):
+    await state.update_data(shoot=message.text)
+    await message.answer("Выберите дату:", reply_markup=get_calendar())
     await state.set_state(Booking.date)
 
 
+@dp.callback_query(lambda c: c.data.startswith("cal_"))
+async def cal_move(cb: CallbackQuery):
+    _, y, m = cb.data.split("_")
+    await cb.message.edit_reply_markup(
+        reply_markup=get_calendar(int(y), int(m))
+    )
+    await cb.answer()
+
+
+@dp.callback_query(lambda c: c.data == "ignore")
+async def ign(cb: CallbackQuery):
+    await cb.answer()
+
+
 @dp.callback_query(lambda c: c.data.startswith("date_"))
-async def b_date(cb: CallbackQuery, state: FSMContext):
-    d = cb.data.split("_")[1]
-    await state.update_data(date=d)
-    await cb.message.answer("Время:", reply_markup=get_time_kb(d))
+async def pick_date(cb: CallbackQuery, state: FSMContext):
+    _, y, m, d = cb.data.split("_")
+    date = f"{d.zfill(2)}.{m.zfill(2)}.{y}"
+    await state.update_data(date=date)
+
+    await cb.message.answer(
+        "Выберите время:",
+        reply_markup=get_time_kb(date)
+    )
     await state.set_state(Booking.time)
     await cb.answer()
 
 
-@dp.callback_query(lambda c: c.data == "busy")
-async def busy(cb: CallbackQuery):
-    await cb.answer("Занято", show_alert=True)
-
-
 @dp.callback_query(lambda c: c.data.startswith("time_"))
-async def b_time(cb: CallbackQuery, state: FSMContext):
+async def pick_time(cb: CallbackQuery, state: FSMContext):
     t = cb.data.split("_")[1]
+    data = await state.get_data()
+
+    if slot_busy(data["date"], t):
+        await cb.answer("Слот занят", show_alert=True)
+        return
+
     await state.update_data(time=t)
-    await cb.message.answer("Телефон:", reply_markup=phone_kb)
+    await cb.message.answer("Отправьте телефон:", reply_markup=phone_kb)
     await state.set_state(Booking.phone)
     await cb.answer()
 
 
 @dp.message(Booking.phone)
-async def b_phone(message: Message, state: FSMContext):
+async def save_phone(message: Message, state: FSMContext):
     if not message.contact:
+        await message.answer("Нажмите кнопку отправки")
         return
 
-    await state.update_data(phone=message.contact.phone_number)
-    d = await state.get_data()
-
-    await message.answer(
-        f"{d['shoot_type']}\n{d['date']} {d['time']}\n{d['phone']}",
-        reply_markup=confirm_kb
-    )
-    await state.set_state(Booking.confirm)
-
-
-@dp.message(Booking.confirm)
-async def b_confirm(message: Message, state: FSMContext):
-
-    if message.text != "✅ Подтвердить":
-        await state.clear()
-        return
-
-    d = await state.get_data()
+    data = await state.get_data()
     u = message.from_user
 
-    rec = (
-        f"{d['date']}|{d['time']}|{d['shoot_type']}|{d['phone']}|"
-        f"{u.full_name}|@{u.username}|{u.id}|NEW\n"
+    record = (
+        f"{data['date']}|{data['time']}|{data['shoot']}|"
+        f"{message.contact.phone_number}|{u.full_name}|"
+        f"@{u.username}|{u.id}|NEW\n"
     )
 
-    with open("bookings.txt", "a", encoding="utf-8") as f:
-        f.write(rec)
+    with open("bookings.txt","a",encoding="utf-8") as f:
+        f.write(record)
 
-    await bot.send_message(ADMIN_ID, "Новая заявка\n" + rec)
+    await bot.send_message(
+        ADMIN_ID,
+        f"Новая запись\n{record}"
+    )
 
-    await message.answer("Записано", reply_markup=menu_kb)
+    await message.answer("✅ Записано", reply_markup=start_kb)
     await state.clear()
 
 
 # ================= USER CANCEL =================
 
-@dp.message(lambda m: m.text == "❌ Отменить мою запись")
-async def cancel_my(message: Message):
+@dp.message(lambda m: m.text == "❌ Моя запись")
+async def my_book(message: Message):
     uid = str(message.from_user.id)
+    rows = parse_bookings()
+
+    kb = []
+    for r in rows:
+        if r["user_id"] == uid:
+            kb.append([InlineKeyboardButton(
+                text=f"{r['date']} {r['time']}",
+                callback_data=f"ucancel_{r['index']}"
+            )])
+
+    if not kb:
+        await message.answer("У вас нет записей")
+        return
+
+    await message.answer(
+        "Ваши записи:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("ucancel_"))
+async def user_cancel(cb: CallbackQuery):
+    idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
-    new = [l for l in lines if f"|{uid}|" not in l]
-    write_lines("bookings.txt", new)
-    await message.answer("Отменено")
+    lines.pop(idx)
+    write_lines("bookings.txt", lines)
+
+    await cb.message.answer("Запись отменена")
+    await cb.answer()
 
 
-# ================= CRM =================
+# ================= CRM ADMIN =================
 
 @dp.message(Command("crm"))
 async def crm(message: Message):
@@ -342,10 +325,13 @@ async def crm(message: Message):
         return
 
     rows = parse_bookings()
-    kb = [[InlineKeyboardButton(
-        text=f"{r['date']} {r['time']} — {r['name']}",
-        callback_data=f"card_{r['index']}"
-    )] for r in rows]
+    kb = []
+
+    for r in rows:
+        kb.append([InlineKeyboardButton(
+            text=f"{r['date']} {r['time']} — {r['name']}",
+            callback_data=f"card_{r['index']}"
+        )])
 
     await message.answer(
         "CRM заявки:",
@@ -354,24 +340,27 @@ async def crm(message: Message):
 
 
 @dp.callback_query(lambda c: c.data.startswith("card_"))
-async def crm_card(cb: CallbackQuery):
+async def card(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     r = parse_bookings()[idx]
 
+    status_map = {
+        "NEW": "🟡 Новая",
+        "DONE": "🟢 Выполнена"
+    }
+
     text = (
-        f"{r['name']}\n{r['phone']}\n"
+        f"👤 {r['name']}\n"
+        f"{r['phone']}\n\n"
+        f"{r['type']}\n"
         f"{r['date']} {r['time']}\n"
-        f"{r['type']}\nСтатус: {r['status']}"
+        f"{status_map.get(r['status'], r['status'])}"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="✉️ Написать",
             url=f"tg://user?id={r['user_id']}"
-        )],
-        [InlineKeyboardButton(
-            text="📋 Чек-лист",
-            callback_data=f"checkopen_{idx}"
         )],
         [InlineKeyboardButton(
             text="✅ DONE",
@@ -384,53 +373,27 @@ async def crm_card(cb: CallbackQuery):
     ])
 
     await cb.message.answer(text, reply_markup=kb)
+    await cb.answer()
 
 
 @dp.callback_query(lambda c: c.data.startswith("done_"))
-async def crm_done(cb: CallbackQuery):
+async def done(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
     p = lines[idx].strip().split("|")
     p[7] = "DONE"
     lines[idx] = "|".join(p) + "\n"
     write_lines("bookings.txt", lines)
-    await cb.answer("DONE")
+    await cb.answer("Отмечено")
 
 
 @dp.callback_query(lambda c: c.data.startswith("del_"))
-async def crm_del(cb: CallbackQuery):
+async def delete(cb: CallbackQuery):
     idx = int(cb.data.split("_")[1])
     lines = read_lines("bookings.txt")
     lines.pop(idx)
     write_lines("bookings.txt", lines)
     await cb.answer("Удалено")
-
-
-# ================= CHECKLIST =================
-
-@dp.callback_query(lambda c: c.data.startswith("checkopen_"))
-async def check_open(cb: CallbackQuery):
-    idx = int(cb.data.split("_")[1])
-    await cb.message.answer(
-        "Чек-лист:",
-        reply_markup=checklist_kb(idx)
-    )
-
-
-@dp.callback_query(lambda c: c.data.startswith("check_"))
-async def check_toggle(cb: CallbackQuery):
-    _, idx, n = cb.data.split("_")
-    idx = int(idx)
-    n = int(n)
-
-    state = get_check_state(idx)
-    state[n] = "0" if state[n] == "1" else "1"
-    save_check_state(idx, state)
-
-    await cb.message.edit_reply_markup(
-        reply_markup=checklist_kb(idx)
-    )
-    await cb.answer()
 
 
 # ================= RUN =================
