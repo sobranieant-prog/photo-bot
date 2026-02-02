@@ -307,6 +307,94 @@ async def confirm(message: Message, state: FSMContext):
     await state.clear()
 
 
+# ================= CRM =================
+
+def parse_bookings():
+    rows = []
+    for i, line in enumerate(read_lines("bookings.txt")):
+        p = line.strip().split("|")
+        if len(p) >= 8:
+            rows.append((i, p))
+    return rows
+
+
+def crm_kb():
+    rows = []
+
+    for i, p in parse_bookings():
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{p[0]} {p[1]} | {p[4]} | {p[7]}",
+                callback_data="ignore"
+            )
+        ])
+        rows.append([
+            InlineKeyboardButton(text="✅ Выполнен", callback_data=f"done_{i}"),
+            InlineKeyboardButton(text="❌ Отменить", callback_data=f"acancel_{i}")
+        ])
+
+    if not rows:
+        rows.append([
+            InlineKeyboardButton(text="📭 Нет заявок", callback_data="ignore")
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.message(lambda m: m.text == "📊 CRM")
+async def crm(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    await message.answer("📊 CRM заявки:", reply_markup=crm_kb())
+
+
+@dp.callback_query(lambda c: c.data.startswith("done_"))
+async def done(cb: CallbackQuery):
+    idx = int(cb.data.split("_")[1])
+    lines = read_lines("bookings.txt")
+
+    if idx >= len(lines):
+        await cb.answer("Ошибка")
+        return
+
+    p = lines[idx].strip().split("|")
+    p[7] = "Выполнен"
+    lines[idx] = "|".join(p) + "\n"
+    write_lines("bookings.txt", lines)
+
+    await cb.answer("✅ Выполнено")
+    await cb.message.edit_reply_markup(reply_markup=crm_kb())
+
+
+@dp.callback_query(lambda c: c.data.startswith("acancel_"))
+async def admin_cancel(cb: CallbackQuery):
+    if cb.from_user.id != ADMIN_ID:
+        return
+
+    idx = int(cb.data.split("_")[1])
+    lines = read_lines("bookings.txt")
+
+    if idx >= len(lines):
+        await cb.answer("Ошибка")
+        return
+
+    p = lines[idx].strip().split("|")
+    lines.pop(idx)
+    write_lines("bookings.txt", lines)
+
+    try:
+        await bot.send_message(
+            int(p[6]),
+            f"🚫 Съёмка отменена фотографом\n📅 {p[0]} ⏰ {p[1]}"
+        )
+    except:
+        pass
+
+    await cb.answer("❌ Отменено")
+    await cb.message.edit_reply_markup(reply_markup=crm_kb())
+
+
 # ================= RUN =================
 
 async def main():
