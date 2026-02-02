@@ -297,9 +297,11 @@ async def confirm(message: Message, state: FSMContext):
         ADMIN_ID,
         f"""📥 НОВАЯ ЗАЯВКА
 
-👤 {d['name']} @{d['username']}
+👤 {d['name']}
+@{d['username']}
 📸 {d['shoot']}
-📅 {d['date']} ⏰ {d['time']}
+📅 {d['date']} 
+⏰ {d['time']}
 📞 {d['phone']}"""
     )
 
