@@ -395,6 +395,56 @@ async def admin_cancel(cb: CallbackQuery):
     await cb.message.edit_reply_markup(reply_markup=crm_kb())
 
 
+# ================= USER BOOKINGS =================
+
+@dp.message(lambda m: m.text == "❌ Моя запись")
+async def my_book(message: Message):
+    uid = str(message.from_user.id)
+    kb = []
+
+    for i, line in enumerate(read_lines("bookings.txt")):
+        p = line.strip().split("|")
+        if len(p) >= 7 and p[6] == uid:
+            kb.append([
+                InlineKeyboardButton(
+                    text=f"{p[0]} {p[1]} | {p[2]}",
+                    callback_data=f"ucancel_{i}"
+                )
+            ])
+
+    if not kb:
+        await message.answer("📭 У вас нет активных записей")
+        return
+
+    await message.answer(
+        "Ваши записи (нажмите для отмены):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("ucancel_"))
+async def user_cancel(cb: CallbackQuery):
+    idx = int(cb.data.split("_")[1])
+    lines = read_lines("bookings.txt")
+
+    if idx >= len(lines):
+        await cb.answer("Ошибка")
+        return
+
+    p = lines[idx].strip().split("|")
+    lines.pop(idx)
+    write_lines("bookings.txt", lines)
+
+    # уведомляем администратора
+    await bot.send_message(
+        ADMIN_ID,
+        f"🚫 Клиент отменил запись:\n📅 {p[0]} ⏰ {p[1]}\n👤 {p[4]}"
+    )
+
+    await cb.message.answer("❌ Запись отменена")
+    await cb.answer()
+
+
 # ================= RUN =================
 
 async def main():
