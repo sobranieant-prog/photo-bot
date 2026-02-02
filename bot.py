@@ -3,7 +3,7 @@ print("BOT STARTED")
 import os
 import asyncio
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import (
@@ -99,6 +99,17 @@ def is_slot_taken(date, time):
     return False
 
 
+def is_time_too_soon(date_str: str, time_str: str) -> bool:
+    now = datetime.now()
+
+    d, m, y = map(int, date_str.split("."))
+    h, min_ = map(int, time_str.split(":"))
+
+    slot_dt = datetime(y, m, d, h, min_)
+
+    return slot_dt <= now + timedelta(hours=1)
+
+
 # ================= CALENDAR =================
 
 def get_calendar():
@@ -137,11 +148,17 @@ def get_calendar():
 
 def get_time_kb(date):
     rows = []
+
     for t in TIMES:
-        if is_slot_taken(date, t):
-            rows.append([InlineKeyboardButton(text=f"{t} ❌", callback_data="ignore")])
+        if is_slot_taken(date, t) or is_time_too_soon(date, t):
+            rows.append([
+                InlineKeyboardButton(text=f"{t} ❌", callback_data="ignore")
+            ])
         else:
-            rows.append([InlineKeyboardButton(text=t, callback_data=f"time_{t}")])
+            rows.append([
+                InlineKeyboardButton(text=t, callback_data=f"time_{t}")
+            ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -224,6 +241,13 @@ async def pick_date(cb: CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("time_"))
 async def pick_time(cb: CallbackQuery, state: FSMContext):
     t = cb.data.split("_")[1]
+    data = await state.get_data()
+    date = data["date"]
+
+    if is_time_too_soon(date, t):
+        await cb.answer("⏳ Это время уже недоступно", show_alert=True)
+        return
+
     await state.update_data(time=t)
 
     await cb.message.answer("Отправьте номер:", reply_markup=phone_kb)
@@ -263,13 +287,11 @@ async def confirm(message: Message, state: FSMContext):
 
     d = await state.get_data()
 
-    line = "|".join([
-        d["date"], d["time"], d["shoot"], d["phone"],
-        d["name"], d["username"], d["user_id"], "Новая"
-    ]) + "\n"
-
     with open("bookings.txt", "a", encoding="utf-8") as f:
-        f.write(line)
+        f.write("|".join([
+            d["date"], d["time"], d["shoot"], d["phone"],
+            d["name"], d["username"], d["user_id"], "Новая"
+        ]) + "\n")
 
     await bot.send_message(
         ADMIN_ID,
@@ -283,129 +305,6 @@ async def confirm(message: Message, state: FSMContext):
 
     await message.answer("✅ Запись сохранена", reply_markup=get_menu(message.from_user.id))
     await state.clear()
-
-
-# ================= USER CANCEL =================
-
-@dp.message(lambda m: m.text == "❌ Моя запись")
-async def my_book(message: Message):
-    uid = str(message.from_user.id)
-    kb = []
-
-    for i, line in enumerate(read_lines("bookings.txt")):
-        p = line.strip().split("|")
-        if len(p) >= 7 and p[6] == uid:
-            kb.append([InlineKeyboardButton(
-                text=f"{p[0]} {p[1]}",
-                callback_data=f"ucancel_{i}"
-            )])
-
-    if not kb:
-        await message.answer("Нет записей")
-        return
-
-    await message.answer("Ваши записи:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-
-
-@dp.callback_query(lambda c: c.data.startswith("ucancel_"))
-async def user_cancel(cb: CallbackQuery):
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-    if idx >= len(lines):
-        return
-
-    p = lines[idx].split("|")
-    lines.pop(idx)
-    write_lines("bookings.txt", lines)
-
-    await bot.send_message(
-        ADMIN_ID,
-        f"🚫 Клиент отменил: {p[0]} {p[1]} {p[4]}"
-    )
-
-    await cb.message.answer("❌ Запись отменена")
-    await cb.answer()
-
-
-# ================= CRM =================
-
-def parse_bookings():
-    rows = []
-    for i, line in enumerate(read_lines("bookings.txt")):
-        p = line.strip().split("|")
-        if len(p) >= 8:
-            rows.append((i, p))
-    return rows
-
-
-def crm_kb():
-    rows = []
-    for i, p in parse_bookings():
-
-        rows.append([
-            InlineKeyboardButton(text="✅ Выполнен", callback_data=f"done_{i}"),
-            InlineKeyboardButton(text="❌ Отменить", callback_data=f"acancel_{i}")
-        ])
-
-        rows.append([
-            InlineKeyboardButton(
-                text=f"{p[0]} {p[1]} | {p[4]} | {p[7]}",
-                callback_data="ignore"
-            )
-        ])
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-@dp.message(lambda m: m.text == "📊 CRM")
-async def crm(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("CRM:", reply_markup=crm_kb())
-
-
-@dp.callback_query(lambda c: c.data.startswith("done_"))
-async def done(cb: CallbackQuery):
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-    p = lines[idx].strip().split("|")
-    p[7] = "Выполнен"
-    lines[idx] = "|".join(p) + "\n"
-    write_lines("bookings.txt", lines)
-
-    await cb.answer("Статус → Выполнен")
-    await cb.message.edit_reply_markup(reply_markup=crm_kb())
-
-
-@dp.callback_query(lambda c: c.data.startswith("acancel_"))
-async def admin_cancel(cb: CallbackQuery):
-    if cb.from_user.id != ADMIN_ID:
-        return
-
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-    if idx >= len(lines):
-        return
-
-    p = lines[idx].strip().split("|")
-    lines.pop(idx)
-    write_lines("bookings.txt", lines)
-
-    try:
-        await bot.send_message(
-            int(p[6]),
-            f"🚫 Съёмка отменена фотографом\n📅 {p[0]} ⏰ {p[1]}"
-        )
-    except:
-        pass
-
-    await cb.answer("Отменено")
-    await cb.message.edit_reply_markup(reply_markup=crm_kb())
-
-
-@dp.callback_query(lambda c: c.data == "ignore")
-async def ignore(cb: CallbackQuery):
-    await cb.answer()
 
 
 # ================= RUN =================
