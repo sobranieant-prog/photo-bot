@@ -107,8 +107,16 @@ def is_time_too_soon(date_str: str, time_str: str) -> bool:
 
     slot_dt = datetime(y, m, d, h, min_)
 
-    # запрещаем всё, что раньше чем через 60 минут
-    return slot_dt <= now + timedelta(minutes=60)
+    # 1️⃣ прошедшее время — НЕЛЬЗЯ
+    if slot_dt <= now:
+        return True
+
+    # 2️⃣ меньше чем за 60 минут — НЕЛЬЗЯ
+    if slot_dt <= now + timedelta(minutes=60):
+        return True
+
+    return False
+
 
 
 
