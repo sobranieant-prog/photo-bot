@@ -107,9 +107,14 @@ def is_time_too_soon(date_str: str, time_str: str) -> bool:
 
     slot_dt = datetime(y, m, d, h, min_)
 
-    diff = (slot_dt - now).total_seconds() / 60  # разница в минутах
+    # если дата не сегодня — разрешаем
+    if slot_dt.date() != now.date():
+        return False
+
+    diff = (slot_dt - now).total_seconds() / 60
 
     return diff < 60
+
 
 
 
