@@ -16,6 +16,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
+from zoneinfo import ZoneInfo
 
 
 # ================= CONFIG =================
@@ -100,22 +101,24 @@ def is_slot_taken(date, time):
 
 
 def is_time_too_soon(date_str: str, time_str: str) -> bool:
-    now = datetime.now()
+    # локальное время (Москва)
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
 
     d, m, y = map(int, date_str.split("."))
     h, min_ = map(int, time_str.split(":"))
 
-    slot_dt = datetime(y, m, d, h, min_)
+    slot_dt = datetime(y, m, d, h, min_, tzinfo=ZoneInfo("Europe/Moscow"))
 
-    # 1️⃣ прошедшее время — НЕЛЬЗЯ
+    # ❌ прошедшее время
     if slot_dt <= now:
         return True
 
-    # 2️⃣ меньше чем за 60 минут — НЕЛЬЗЯ
+    # ❌ меньше чем за 60 минут
     if slot_dt <= now + timedelta(minutes=60):
         return True
 
     return False
+
 
 
 
