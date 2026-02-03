@@ -107,7 +107,10 @@ def is_time_too_soon(date_str: str, time_str: str) -> bool:
 
     slot_dt = datetime(y, m, d, h, min_)
 
-    return slot_dt <= now + timedelta(hours=1)
+    diff = (slot_dt - now).total_seconds() / 60  # разница в минутах
+
+    return diff < 60
+
 
 
 # ================= CALENDAR =================
