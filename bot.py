@@ -3,7 +3,9 @@ print("BOT STARTED")
 import os
 import asyncio
 import calendar
+import sqlite3
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import (
@@ -16,16 +18,37 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
-from zoneinfo import ZoneInfo
 
 
 # ================= CONFIG =================
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 1428673148
+TZ = ZoneInfo("Europe/Moscow")
 
 bot = Bot(TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+
+# ================= DATABASE =================
+
+db = sqlite3.connect("bookings.db")
+cursor = db.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    time TEXT,
+    shoot TEXT,
+    phone TEXT,
+    name TEXT,
+    username TEXT,
+    user_id INTEGER,
+    status TEXT
+)
+""")
+db.commit()
 
 
 # ================= PRICES =================
@@ -38,20 +61,6 @@ PRICES = {
 }
 
 
-# ================= FILE =================
-
-def read_lines(path):
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8") as f:
-        return f.readlines()
-
-
-def write_lines(path, lines):
-    with open(path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
-
-
 # ================= MENU =================
 
 def get_menu(uid):
@@ -60,10 +69,8 @@ def get_menu(uid):
         [KeyboardButton(text="📅 Записаться")],
         [KeyboardButton(text="❌ Моя запись")]
     ]
-
     if uid == ADMIN_ID:
         kb.append([KeyboardButton(text="📊 CRM")])
-
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 
@@ -95,43 +102,35 @@ TIMES = [
 ]
 
 
-
 def is_slot_taken(date, time):
-    for line in read_lines("bookings.txt"):
-        p = line.strip().split("|")
-        if len(p) >= 2 and p[0] == date and p[1] == time:
-            return True
-    return False
+    cursor.execute(
+        "SELECT 1 FROM bookings WHERE date=? AND time=? AND status!='Отменён'",
+        (date, time)
+    )
+    return cursor.fetchone() is not None
 
 
-def is_time_too_soon(date_str: str, time_str: str) -> bool:
-    # локальное время (Москва)
-    now = datetime.now(ZoneInfo("Europe/Moscow"))
+def is_time_too_soon(date_str, time_str):
+    now = datetime.now(TZ)
 
     d, m, y = map(int, date_str.split("."))
-    h, min_ = map(int, time_str.split(":"))
+    h, mi = map(int, time_str.split(":"))
 
-    slot_dt = datetime(y, m, d, h, min_, tzinfo=ZoneInfo("Europe/Moscow"))
+    slot_dt = datetime(y, m, d, h, mi, tzinfo=TZ)
 
-    # ❌ прошедшее время
     if slot_dt <= now:
         return True
 
-    # ❌ меньше чем за 60 минут
     if slot_dt <= now + timedelta(minutes=60):
         return True
 
     return False
 
 
-
-
-
-
 # ================= CALENDAR =================
 
 def get_calendar():
-    now = datetime.now()
+    now = datetime.now(TZ)
     y, m = now.year, now.month
     kb = []
 
@@ -151,7 +150,7 @@ def get_calendar():
             if d == 0:
                 row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
             else:
-                dt = datetime(y, m, d)
+                dt = datetime(y, m, d, tzinfo=TZ)
                 if dt.date() < now.date():
                     row.append(InlineKeyboardButton(text="—", callback_data="ignore"))
                 else:
@@ -166,17 +165,11 @@ def get_calendar():
 
 def get_time_kb(date):
     rows = []
-
     for t in TIMES:
         if is_slot_taken(date, t) or is_time_too_soon(date, t):
-            rows.append([
-                InlineKeyboardButton(text=f"{t} ❌", callback_data="ignore")
-            ])
+            rows.append([InlineKeyboardButton(text=f"{t} ❌", callback_data="ignore")])
         else:
-            rows.append([
-                InlineKeyboardButton(text=t, callback_data=f"time_{t}")
-            ])
-
+            rows.append([InlineKeyboardButton(text=t, callback_data=f"time_{t}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -224,10 +217,8 @@ async def booking_start(message: Message, state: FSMContext):
 
     kb = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=f"❤️ Свадебная ({PRICES['❤️ Свадебная']})")],
-            [KeyboardButton(text=f"🏢 Корпоративная ({PRICES['🏢 Корпоративная']})")],
-            [KeyboardButton(text=f"🎤 Репортажная ({PRICES['🎤 Репортажная']})")],
-            [KeyboardButton(text=f"📸 Индивидуальная / Семейная ({PRICES['📸 Индивидуальная / Семейная']})")]
+            [KeyboardButton(text=f"{k} ({v})")]
+            for k, v in PRICES.items()
         ],
         resize_keyboard=True
     )
@@ -249,8 +240,8 @@ async def booking_type(message: Message, state: FSMContext):
 async def pick_date(cb: CallbackQuery, state: FSMContext):
     _, y, m, d = cb.data.split("_")
     date = f"{d.zfill(2)}.{m.zfill(2)}.{y}"
-    await state.update_data(date=date)
 
+    await state.update_data(date=date)
     await cb.message.answer("Выберите время:", reply_markup=get_time_kb(date))
     await state.set_state(Booking.time)
     await cb.answer()
@@ -260,14 +251,12 @@ async def pick_date(cb: CallbackQuery, state: FSMContext):
 async def pick_time(cb: CallbackQuery, state: FSMContext):
     t = cb.data.split("_")[1]
     data = await state.get_data()
-    date = data["date"]
 
-    if is_time_too_soon(date, t):
-        await cb.answer("⏳ Это время уже недоступно", show_alert=True)
+    if is_time_too_soon(data["date"], t):
+        await cb.answer("⏳ Это время недоступно", show_alert=True)
         return
 
     await state.update_data(time=t)
-
     await cb.message.answer("Отправьте номер:", reply_markup=phone_kb)
     await state.set_state(Booking.phone)
     await cb.answer()
@@ -279,20 +268,19 @@ async def get_phone(message: Message, state: FSMContext):
         await message.answer("Нажмите кнопку отправки номера")
         return
 
-    d = await state.get_data()
-
     await state.update_data(
         phone=message.contact.phone_number,
         name=message.from_user.full_name,
         username=message.from_user.username or "",
-        user_id=str(message.from_user.id)
+        user_id=message.from_user.id
     )
+
+    d = await state.get_data()
 
     await message.answer(
         f"Проверьте заявку:\n\n📸 {d['shoot']}\n📅 {d['date']}\n⏰ {d['time']}",
         reply_markup=confirm_kb
     )
-
     await state.set_state(Booking.confirm)
 
 
@@ -305,164 +293,23 @@ async def confirm(message: Message, state: FSMContext):
 
     d = await state.get_data()
 
-    with open("bookings.txt", "a", encoding="utf-8") as f:
-        f.write("|".join([
-            d["date"], d["time"], d["shoot"], d["phone"],
-            d["name"], d["username"], d["user_id"], "Новая"
-        ]) + "\n")
+    cursor.execute("""
+    INSERT INTO bookings
+    (date, time, shoot, phone, name, username, user_id, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'Новая')
+    """, (
+        d["date"], d["time"], d["shoot"], d["phone"],
+        d["name"], d["username"], d["user_id"]
+    ))
+    db.commit()
 
     await bot.send_message(
         ADMIN_ID,
-        f"""📥 НОВАЯ ЗАЯВКА
-
-👤 {d['name']}
-@{d['username']}
-📸 {d['shoot']}
-📅 {d['date']} 
-⏰ {d['time']}
-📞 {d['phone']}"""
+        f"📥 НОВАЯ ЗАЯВКА\n\n👤 {d['name']}\n📸 {d['shoot']}\n📅 {d['date']} ⏰ {d['time']}\n📞 {d['phone']}"
     )
 
     await message.answer("✅ Запись сохранена", reply_markup=get_menu(message.from_user.id))
     await state.clear()
-
-
-# ================= CRM =================
-
-def parse_bookings():
-    rows = []
-    for i, line in enumerate(read_lines("bookings.txt")):
-        p = line.strip().split("|")
-        if len(p) >= 8:
-            rows.append((i, p))
-    return rows
-
-
-def crm_kb():
-    rows = []
-
-    for i, p in parse_bookings():
-        rows.append([
-            InlineKeyboardButton(
-                text=f"{p[0]} {p[1]} | {p[4]} | {p[7]}",
-                callback_data="ignore"
-            )
-        ])
-        rows.append([
-            InlineKeyboardButton(text="✅ Выполнен", callback_data=f"done_{i}"),
-            InlineKeyboardButton(text="❌ Отменить", callback_data=f"acancel_{i}")
-        ])
-
-    if not rows:
-        rows.append([
-            InlineKeyboardButton(text="📭 Нет заявок", callback_data="ignore")
-        ])
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-@dp.message(lambda m: m.text == "📊 CRM")
-async def crm(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    await message.answer("📊 CRM заявки:", reply_markup=crm_kb())
-
-
-@dp.callback_query(lambda c: c.data.startswith("done_"))
-async def done(cb: CallbackQuery):
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-
-    if idx >= len(lines):
-        await cb.answer("Ошибка")
-        return
-
-    p = lines[idx].strip().split("|")
-    p[7] = "Выполнен"
-    lines[idx] = "|".join(p) + "\n"
-    write_lines("bookings.txt", lines)
-
-    await cb.answer("✅ Выполнено")
-    await cb.message.edit_reply_markup(reply_markup=crm_kb())
-
-
-@dp.callback_query(lambda c: c.data.startswith("acancel_"))
-async def admin_cancel(cb: CallbackQuery):
-    if cb.from_user.id != ADMIN_ID:
-        return
-
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-
-    if idx >= len(lines):
-        await cb.answer("Ошибка")
-        return
-
-    p = lines[idx].strip().split("|")
-    lines.pop(idx)
-    write_lines("bookings.txt", lines)
-
-    try:
-        await bot.send_message(
-            int(p[6]),
-            f"🚫 Съёмка отменена фотографом\n📅 {p[0]} ⏰ {p[1]}"
-        )
-    except:
-        pass
-
-    await cb.answer("❌ Отменено")
-    await cb.message.edit_reply_markup(reply_markup=crm_kb())
-
-
-# ================= USER BOOKINGS =================
-
-@dp.message(lambda m: m.text == "❌ Моя запись")
-async def my_book(message: Message):
-    uid = str(message.from_user.id)
-    kb = []
-
-    for i, line in enumerate(read_lines("bookings.txt")):
-        p = line.strip().split("|")
-        if len(p) >= 7 and p[6] == uid:
-            kb.append([
-                InlineKeyboardButton(
-                    text=f"{p[0]} {p[1]} | {p[2]}",
-                    callback_data=f"ucancel_{i}"
-                )
-            ])
-
-    if not kb:
-        await message.answer("📭 У вас нет активных записей")
-        return
-
-    await message.answer(
-        "Ваши записи (нажмите для отмены):",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-    )
-
-
-@dp.callback_query(lambda c: c.data.startswith("ucancel_"))
-async def user_cancel(cb: CallbackQuery):
-    idx = int(cb.data.split("_")[1])
-    lines = read_lines("bookings.txt")
-
-    if idx >= len(lines):
-        await cb.answer("Ошибка")
-        return
-
-    p = lines[idx].strip().split("|")
-    lines.pop(idx)
-    write_lines("bookings.txt", lines)
-
-    # уведомляем администратора
-    await bot.send_message(
-        ADMIN_ID,
-        f"🚫 Клиент отменил запись:\n📅 {p[0]} ⏰ {p[1]}\n👤 {p[4]}"
-    )
-
-    await cb.message.answer("❌ Запись отменена")
-    await cb.answer()
 
 
 # ================= RUN =================
