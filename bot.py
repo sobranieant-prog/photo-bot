@@ -104,7 +104,7 @@ TIMES = [
 
 def is_slot_taken(date, time):
     cursor.execute(
-        "SELECT 1 FROM bookings WHERE date=? AND time=? AND status!='Отменён'",
+        "SELECT 1 FROM bookings WHERE date=? AND time=? AND status='Новая'",
         (date, time)
     )
     return cursor.fetchone() is not None
@@ -112,19 +112,10 @@ def is_slot_taken(date, time):
 
 def is_time_too_soon(date_str, time_str):
     now = datetime.now(TZ)
-
     d, m, y = map(int, date_str.split("."))
     h, mi = map(int, time_str.split(":"))
-
     slot_dt = datetime(y, m, d, h, mi, tzinfo=TZ)
-
-    if slot_dt <= now:
-        return True
-
-    if slot_dt <= now + timedelta(minutes=60):
-        return True
-
-    return False
+    return slot_dt <= now + timedelta(minutes=60)
 
 
 # ================= CALENDAR =================
@@ -197,7 +188,7 @@ async def menu(message: Message):
 
 # ================= PORTFOLIO =================
 
-@dp.message(lambda m: m.text == "📸 Портфолио")
+@dp.message(lambda m: m.text and m.text.startswith("📸"))
 async def portfolio(message: Message):
     found = False
     for i in range(1, 11):
@@ -209,12 +200,14 @@ async def portfolio(message: Message):
         await message.answer("Портфолио пусто")
 
 
-@dp.message(lambda m: m.text == "❌ Моя запись")
+# ================= MY BOOKING =================
+
+@dp.message(lambda m: m.text and m.text.startswith("❌"))
 async def my_booking(message: Message):
     cursor.execute("""
         SELECT id, date, time, shoot, status
         FROM bookings
-        WHERE user_id=?
+        WHERE user_id=? AND status='Новая'
         ORDER BY id DESC
         LIMIT 1
     """, (message.from_user.id,))
@@ -227,62 +220,96 @@ async def my_booking(message: Message):
 
     bid, date, time, shoot, status = row
 
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="❌ Отменить запись",
+            callback_data=f"user_cancel_{bid}"
+        )]
+    ])
+
     await message.answer(
         f"📌 Ваша запись:\n\n"
         f"📸 {shoot}\n"
         f"📅 {date}\n"
         f"⏰ {time}\n"
-        f"📄 Статус: {status}"
+        f"📄 Статус: {status}",
+        reply_markup=kb
     )
 
 
-@dp.message(lambda m: m.text == "📊 CRM")
+@dp.callback_query(lambda c: c.data.startswith("user_cancel_"))
+async def user_cancel(cb: CallbackQuery):
+    bid = cb.data.split("_")[2]
+    cursor.execute("UPDATE bookings SET status='Отменено' WHERE id=?", (bid,))
+    db.commit()
+    await cb.message.edit_text("❌ Ваша запись отменена")
+    await cb.answer()
+    await bot.send_message(ADMIN_ID, "⚠️ Клиент отменил запись")
+
+
+# ================= CRM =================
+
+@dp.message(lambda m: m.text and m.text.startswith("📊"))
 async def crm(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
 
     cursor.execute("""
-        SELECT date, time, shoot, name, phone, status
+        SELECT id, date, time, shoot, name, phone, status
         FROM bookings
+        WHERE status='Новая'
         ORDER BY id DESC
-        LIMIT 10
+        LIMIT 5
     """)
-
     rows = cursor.fetchall()
 
     if not rows:
-        await message.answer("CRM пуста")
+        await message.answer("Нет новых заявок")
         return
 
-    text = "📊 Последние заявки:\n\n"
-
     for r in rows:
-        text += (
-            f"👤 {r[3]}\n"
-            f"📸 {r[2]}\n"
-            f"📅 {r[0]} {r[1]}\n"
-            f"📞 {r[4]}\n"
-            f"📄 {r[5]}\n"
-            f"────────────\n"
+        bid, date, time, shoot, name, phone, status = r
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Выполнено", callback_data=f"done_{bid}"),
+                InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{bid}")
+            ]
+        ])
+
+        await message.answer(
+            f"👤 {name}\n📸 {shoot}\n📅 {date} {time}\n📞 {phone}\n📄 {status}",
+            reply_markup=kb
         )
 
-    await message.answer(text)
+
+@dp.callback_query(lambda c: c.data.startswith("done_"))
+async def mark_done(cb: CallbackQuery):
+    bid = cb.data.split("_")[1]
+    cursor.execute("UPDATE bookings SET status='Выполнено' WHERE id=?", (bid,))
+    db.commit()
+    await cb.message.edit_text(cb.message.text + "\n\n✅ Выполнено")
+    await cb.answer()
 
 
-# ================= BOOKING =================
+@dp.callback_query(lambda c: c.data.startswith("cancel_"))
+async def mark_cancel(cb: CallbackQuery):
+    bid = cb.data.split("_")[1]
+    cursor.execute("UPDATE bookings SET status='Отменено' WHERE id=?", (bid,))
+    db.commit()
+    await cb.message.edit_text(cb.message.text + "\n\n❌ Отменено фотографом")
+    await cb.answer()
 
-@dp.message(lambda m: m.text == "📅 Записаться")
+
+# ================= BOOKING FLOW =================
+
+@dp.message(lambda m: m.text and m.text.startswith("📅"))
 async def booking_start(message: Message, state: FSMContext):
     await state.clear()
-
     kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=f"{k} ({v})")]
-            for k, v in PRICES.items()
-        ],
+        keyboard=[[KeyboardButton(text=f"{k} ({v})")] for k, v in PRICES.items()],
         resize_keyboard=True
     )
-
     await message.answer("Выберите тип съёмки:", reply_markup=kb)
     await state.set_state(Booking.shoot)
 
@@ -291,7 +318,6 @@ async def booking_start(message: Message, state: FSMContext):
 async def booking_type(message: Message, state: FSMContext):
     shoot = message.text.split(" (")[0]
     await state.update_data(shoot=shoot)
-
     await message.answer("Выберите дату:", reply_markup=get_calendar())
     await state.set_state(Booking.date)
 
@@ -300,7 +326,6 @@ async def booking_type(message: Message, state: FSMContext):
 async def pick_date(cb: CallbackQuery, state: FSMContext):
     _, y, m, d = cb.data.split("_")
     date = f"{d.zfill(2)}.{m.zfill(2)}.{y}"
-
     await state.update_data(date=date)
     await cb.message.answer("Выберите время:", reply_markup=get_time_kb(date))
     await state.set_state(Booking.time)
@@ -310,12 +335,6 @@ async def pick_date(cb: CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("time_"))
 async def pick_time(cb: CallbackQuery, state: FSMContext):
     t = cb.data.split("_")[1]
-    data = await state.get_data()
-
-    if is_time_too_soon(data["date"], t):
-        await cb.answer("⏳ Это время недоступно", show_alert=True)
-        return
-
     await state.update_data(time=t)
     await cb.message.answer("Отправьте номер:", reply_markup=phone_kb)
     await state.set_state(Booking.phone)
@@ -336,7 +355,6 @@ async def get_phone(message: Message, state: FSMContext):
     )
 
     d = await state.get_data()
-
     await message.answer(
         f"Проверьте заявку:\n\n📸 {d['shoot']}\n📅 {d['date']}\n⏰ {d['time']}",
         reply_markup=confirm_kb
@@ -352,11 +370,10 @@ async def confirm(message: Message, state: FSMContext):
         return
 
     d = await state.get_data()
-
     cursor.execute("""
-    INSERT INTO bookings
-    (date, time, shoot, phone, name, username, user_id, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'Новая')
+        INSERT INTO bookings
+        (date, time, shoot, phone, name, username, user_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Новая')
     """, (
         d["date"], d["time"], d["shoot"], d["phone"],
         d["name"], d["username"], d["user_id"]
@@ -365,7 +382,7 @@ async def confirm(message: Message, state: FSMContext):
 
     await bot.send_message(
         ADMIN_ID,
-        f"📥 НОВАЯ ЗАЯВКА\n\n👤 {d['name']}\n📸 {d['shoot']}\n📅 {d['date']} ⏰ {d['time']}\n📞 {d['phone']}"
+        f"📥 НОВАЯ ЗАЯВКА\n\n👤 {d['name']}\n📸 {d['shoot']}\n📅 {d['date']} {d['time']}\n📞 {d['phone']}"
     )
 
     await message.answer("✅ Запись сохранена", reply_markup=get_menu(message.from_user.id))
@@ -377,7 +394,6 @@ async def confirm(message: Message, state: FSMContext):
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
