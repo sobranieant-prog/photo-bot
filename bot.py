@@ -24,6 +24,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 1428673148
+SITE_URL = "https://anikovich.netlify.app"
 TZ = ZoneInfo("Europe/Moscow")
 
 bot = Bot(TOKEN)
