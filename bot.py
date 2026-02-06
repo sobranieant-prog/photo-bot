@@ -209,6 +209,66 @@ async def portfolio(message: Message):
         await message.answer("Портфолио пусто")
 
 
+@dp.message(lambda m: m.text == "❌ Моя запись")
+async def my_booking(message: Message):
+    cursor.execute("""
+        SELECT id, date, time, shoot, status
+        FROM bookings
+        WHERE user_id=?
+        ORDER BY id DESC
+        LIMIT 1
+    """, (message.from_user.id,))
+
+    row = cursor.fetchone()
+
+    if not row:
+        await message.answer("У вас нет активных записей 📭")
+        return
+
+    bid, date, time, shoot, status = row
+
+    await message.answer(
+        f"📌 Ваша запись:\n\n"
+        f"📸 {shoot}\n"
+        f"📅 {date}\n"
+        f"⏰ {time}\n"
+        f"📄 Статус: {status}"
+    )
+
+
+@dp.message(lambda m: m.text == "📊 CRM")
+async def crm(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("""
+        SELECT date, time, shoot, name, phone, status
+        FROM bookings
+        ORDER BY id DESC
+        LIMIT 10
+    """)
+
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("CRM пуста")
+        return
+
+    text = "📊 Последние заявки:\n\n"
+
+    for r in rows:
+        text += (
+            f"👤 {r[3]}\n"
+            f"📸 {r[2]}\n"
+            f"📅 {r[0]} {r[1]}\n"
+            f"📞 {r[4]}\n"
+            f"📄 {r[5]}\n"
+            f"────────────\n"
+        )
+
+    await message.answer(text)
+
+
 # ================= BOOKING =================
 
 @dp.message(lambda m: m.text == "📅 Записаться")
